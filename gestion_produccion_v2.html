@@ -5879,8 +5879,8 @@ function renderOTTabla(){
         ${inpPrecio('P.U. TT','puTT',ot.puTT)}
         ${inpPrecio('P.U. Venta','precioVenta',ot.precioVenta)}
         ${autoVal('% Desvío Final',desvioFinal,desvioFinalColor)}
-        ${inp('Observaciones','obs',ot.obs,'text','')}
       </div>
+      <div style="margin-top:8px">${inp('Observaciones','obs',ot.obs,'text','')}</div>
       ${descRunsVinculados(ot)?`<div style="margin-top:8px;font-size:10px;color:#888">${descRunsVinculados(ot)}</div>`:''}
     </div>`;
   }).join('');
