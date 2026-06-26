@@ -292,7 +292,7 @@ input:focus,select:focus{outline:none;border-color:var(--gris-oscuro)}
     <!-- renderConfigBar() fills this -->
   </div>
   <div id="oc-list" style="display:none;margin-bottom:16px"></div>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+  <div id="config-sub-section" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
     <div style="display:flex;align-items:center;gap:8px">
       <div class="stitle" id="config-sub-title" style="margin-bottom:0">Subconjuntos y componentes</div>
       <div style="display:flex;border:1px solid #ddd;border-radius:6px;overflow:hidden">
@@ -1626,11 +1626,14 @@ function renderConfigBar(){
         </div>
       </div>`;
     ocList.style.display='block';
-    btnAddOC.style.display='inline-block';
+    btnAddOC.style.display='none';
     btnAddSub.style.display='none';
-    subTitle.textContent='Ítems del proyecto';
     const btnRecurso=document.getElementById('btn-add-recurso');
     if(btnRecurso) btnRecurso.style.display='none';
+    // En modo OC, los ítems van dentro de cada card de OC — ocultar la sección separada
+    const subSection=document.getElementById('config-sub-section');
+    if(subSection) subSection.style.display='none';
+    document.getElementById('sub-list').style.display='none';
     renderOCList();
   } else {
     bar.innerHTML=`
@@ -1648,6 +1651,10 @@ function renderConfigBar(){
     // mostrar botón de recurso solo en modo conjuntos
     const btnRecurso=document.getElementById('btn-add-recurso');
     if(btnRecurso) btnRecurso.style.display='inline-block';
+    // Restaurar sección de subconjuntos
+    const subSection=document.getElementById('config-sub-section');
+    if(subSection) subSection.style.display='flex';
+    document.getElementById('sub-list').style.display='block';
   }
 }
 
@@ -1683,7 +1690,8 @@ function removeOC(ocId){
 function addItemToOC(ocId){
   const p=currentProject();
   p.subconjuntos.push({id:++p._subId, name:'Nuevo ítem', qty:1, ocId});
-  renderSubList();
+  _ocItemsExpanded.add(ocId); // expandir la OC para que el nuevo ítem sea visible
+  renderOCList();
   scheduleSync();
 }
 
@@ -1692,48 +1700,88 @@ function renderOCList(){
   const ocs=p.ordenesCompra||[];
   const el=document.getElementById('oc-list');
   const mostrarCompletas=p._mostrarOCsCompletas||false;
+
+  const headerHtml=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+    <button class="btn-add-sub" onclick="addOC()" style="font-weight:700">+ nueva OC</button>
+    <div style="flex:1"></div>
+    <div style="display:flex;border:1px solid #ddd;border-radius:6px;overflow:hidden">
+      <button onclick="expandAllConfig()" style="padding:3px 10px;font-size:11px;font-weight:600;border:none;cursor:pointer;background:#fff;color:#555" title="Expandir todos los ítems">▼ Todo</button>
+      <button onclick="collapseAllConfig()" style="padding:3px 10px;font-size:11px;font-weight:600;border:none;cursor:pointer;background:#fff;color:#555;border-left:1px solid #ddd" title="Colapsar todos los ítems">▲ Todo</button>
+    </div>
+  </div>`;
+
   if(!ocs.length){
-    el.innerHTML=`<div style="background:#fafaf8;border:1.5px dashed var(--gris-claro);border-radius:10px;padding:14px;text-align:center;color:#aaa;font-size:12px">
+    el.innerHTML=headerHtml+`<div style="background:#fafaf8;border:1.5px dashed var(--gris-claro);border-radius:10px;padding:14px;text-align:center;color:#aaa;font-size:12px">
       No hay Órdenes de Compra. Hacé clic en "+ nueva OC" para agregar una.
     </div>`;
     return;
   }
+
   const completas=ocs.filter(oc=>_ocCompleta(p,oc));
   const visibles=mostrarCompletas?ocs:ocs.filter(oc=>!_ocCompleta(p,oc));
   const toggleBtn=completas.length>0?`<div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">
-    <button onclick="currentProject()._mostrarOCsCompletas=!currentProject()._mostrarOCsCompletas;renderOCList();renderSubList();"
+    <button onclick="currentProject()._mostrarOCsCompletas=!currentProject()._mostrarOCsCompletas;renderOCList();"
       style="font-size:11px;padding:3px 10px;border:1px solid var(--gris-medio);border-radius:6px;cursor:pointer;background:${mostrarCompletas?'var(--negro)':'#fff'};color:${mostrarCompletas?'var(--amarillo)':'var(--gris-oscuro)'}">
       ${mostrarCompletas?'▲ Ocultar':'▼ Mostrar'} OCs completadas (${completas.length})
     </button>
   </div>`:'';
-  el.innerHTML=toggleBtn+visibles.map((oc,i)=>{
+
+  const cardsHtml=visibles.map((oc,i)=>{
     const esCompleta=_ocCompleta(p,oc);
     const ocSubs=p.subconjuntos.filter(s=>s.ocId===oc.id);
     const ocComps=p.components.filter(c=>ocSubs.some(s=>s.id===c.subId));
     const color=SUBCOLORS[i%SUBCOLORS.length];
-    return `<div style="border:2px solid ${color};border-radius:12px;padding:12px 14px;margin-bottom:10px;background:${color}11">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+    const isExp=_ocItemsExpanded.has(oc.id);
+    return `<div style="border:2px solid ${color};border-radius:12px;margin-bottom:10px;background:${color}11">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 14px;cursor:pointer"
+           onclick="toggleOCItems(${oc.id})">
         <div style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></div>
         <input type="text" value="${oc.numero||''}" placeholder="N° OC"
           style="width:90px;font-weight:700;font-size:12px;border:1px solid ${color};border-radius:5px;padding:3px 7px"
+          onclick="event.stopPropagation()"
           onchange="currentProject().ordenesCompra.find(o=>o.id===${oc.id}).numero=this.value;scheduleSync()">
         <input type="text" value="${oc.descripcion||''}" placeholder="Descripción de la OC"
           style="flex:1;min-width:120px;font-size:12px;border:1px solid #ddd;border-radius:5px;padding:3px 7px"
+          onclick="event.stopPropagation()"
           onchange="currentProject().ordenesCompra.find(o=>o.id===${oc.id}).descripcion=this.value;scheduleSync()">
         <input type="text" value="${oc.cliente||''}" placeholder="Cliente"
           style="width:140px;font-size:12px;border:1px solid #ddd;border-radius:5px;padding:3px 7px"
+          onclick="event.stopPropagation()"
           onchange="currentProject().ordenesCompra.find(o=>o.id===${oc.id}).cliente=this.value;scheduleSync()">
-        <label style="font-size:10px;color:#888;white-space:nowrap">× cant:</label>
+        <label style="font-size:10px;color:#888;white-space:nowrap" onclick="event.stopPropagation()">× cant:</label>
         <input type="number" value="${oc.qty||1}" min="1"
           style="width:55px;font-weight:700;border:1px solid ${color};border-radius:5px;padding:3px 5px"
+          onclick="event.stopPropagation()"
           oninput="currentProject().ordenesCompra.find(o=>o.id===${oc.id}).qty=+this.value;renderStock()">
-        <span style="font-size:11px;color:#888">${ocSubs.length} ítem${ocSubs.length!==1?'s':''} · ${ocComps.length} comp.</span>
+        <span style="font-size:11px;color:#888;white-space:nowrap">${ocSubs.length} ítem${ocSubs.length!==1?'s':''} · ${ocComps.length} comp.</span>
         ${esCompleta?'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;background:#1a7a4a;color:#fff">✓ COMPLETADA</span>':''}
-        <button onclick="addItemToOC(${oc.id})" style="font-size:11px;padding:2px 10px;border:1.5px solid ${color};border-radius:5px;cursor:pointer;background:${color}22;color:${color};font-weight:600">+ ítem</button>
-        <button onclick="removeOC(${oc.id})" style="font-size:11px;padding:2px 8px;border:1px solid #f5c6c6;border-radius:5px;cursor:pointer;background:#fff;color:#c0392b">×</button>
+        <button onclick="event.stopPropagation();removeOC(${oc.id})"
+          style="font-size:11px;padding:2px 8px;border:1px solid #f5c6c6;border-radius:5px;cursor:pointer;background:#fff;color:#c0392b;margin-left:auto">×</button>
+        <span style="font-size:12px;color:#888;flex-shrink:0;user-select:none">${isExp?'▲':'▼'}</span>
+      </div>
+      <div id="oc-items-${oc.id}" style="display:${isExp?'block':'none'};border-top:1.5px solid ${color}33;padding:10px 14px 6px">
+        <div id="oc-subs-${oc.id}"></div>
+        <button onclick="event.stopPropagation();addItemToOC(${oc.id})"
+          style="font-size:11px;padding:4px 12px;border:1.5px dashed ${color};border-radius:5px;cursor:pointer;background:${color}11;color:${color};font-weight:600;margin-top:8px">
+          + ítem
+        </button>
       </div>
     </div>`;
   }).join('');
+
+  el.innerHTML=headerHtml+toggleBtn+cardsHtml;
+
+  // Poblar los ítems de cada OC (todos, no solo los expandidos, para que al abrir el contenido ya esté)
+  visibles.forEach((oc,ocIdx)=>{
+    const ocSubs=p.subconjuntos.filter(s=>s.ocId===oc.id);
+    const subsContainer=document.getElementById(`oc-subs-${oc.id}`);
+    if(!subsContainer) return;
+    if(!ocSubs.length){
+      subsContainer.innerHTML='<div style="color:#aaa;font-size:11px;font-style:italic;padding:4px 0">Sin ítems. Usá "+ ítem" para agregar.</div>';
+    } else {
+      _renderSubCards(ocSubs, subsContainer, ocIdx, true, oc);
+    }
+  });
 }
 
 function renderSubList(){
@@ -1743,46 +1791,9 @@ function renderSubList(){
   el.innerHTML='';
 
   if(isOC){
-    const ocs=p.ordenesCompra||[];
-    if(!ocs.length){
-      el.innerHTML=`<div style="text-align:center;color:#aaa;padding:20px;font-size:12px">
-        Agregá una Orden de Compra arriba para empezar a cargar ítems.
-      </div>`;
-      return;
-    }
-    const mostrarCompletas=p._mostrarOCsCompletas||false;
-    ocs.forEach((oc,ocIdx)=>{
-      // Ocultar OCs completadas si no se pidió mostrarlas
-      if(!mostrarCompletas && _ocCompleta(p,oc)) return;
-      const ocColor=SUBCOLORS[ocIdx%SUBCOLORS.length];
-      const ocSubs=subconjuntos.filter(s=>s.ocId===oc.id);
-      // Header OC
-      const ocHeader=document.createElement('div');
-      ocHeader.style.cssText=`display:flex;align-items:center;gap:8px;margin:14px 0 6px;`;
-      ocHeader.innerHTML=`
-        <div style="width:12px;height:12px;border-radius:50%;background:${ocColor};flex-shrink:0"></div>
-        <span style="font-weight:800;font-size:13px;color:${ocColor}">OC ${oc.numero||'(sin número)'}</span>
-        <span style="font-size:11px;color:#888">· ${oc.descripcion||''} ${oc.cliente?'· '+oc.cliente:''} · ×${oc.qty||1}</span>
-        <div style="flex:1;height:1.5px;background:${ocColor}44"></div>
-        <button onclick="addItemToOC(${oc.id})" style="font-size:11px;padding:2px 10px;border:1.5px solid ${ocColor};border-radius:5px;cursor:pointer;background:${ocColor}22;color:${ocColor};font-weight:600;white-space:nowrap">+ ítem</button>`;
-      el.appendChild(ocHeader);
-      _renderSubCards(ocSubs, el, ocIdx, isOC, oc);
-      if(!ocSubs.length){
-        const empty=document.createElement('div');
-        empty.style.cssText='color:#aaa;font-size:11px;padding:6px 12px;font-style:italic';
-        empty.textContent='Sin ítems. Hacé clic en "+ ítem" para agregar.';
-        el.appendChild(empty);
-      }
-    });
-    // Subconjuntos sin OC asignada (retrocompatibilidad)
-    const sinOC=subconjuntos.filter(s=>!s.ocId);
-    if(sinOC.length){
-      const hdr=document.createElement('div');
-      hdr.style.cssText='margin:14px 0 6px;font-size:11px;color:#aaa;font-style:italic';
-      hdr.textContent='— Ítems sin OC asignada —';
-      el.appendChild(hdr);
-      _renderSubCards(sinOC, el, 99, isOC, null);
-    }
+    // En modo OC los ítems se muestran dentro de cada card de OC — delegar a renderOCList
+    renderOCList();
+    return;
   } else {
     // Modo conjuntos: separar recursos del proyecto del resto
     const subNormales=subconjuntos.filter(s=>!s.esRecursoProyecto);
@@ -1817,6 +1828,13 @@ function renderSubList(){
 
 // ── Estado de colapso en Componentes ────────────────────────
 const _configExpanded=new Set();
+const _ocItemsExpanded=new Set();
+
+function toggleOCItems(ocId){
+  if(_ocItemsExpanded.has(ocId)) _ocItemsExpanded.delete(ocId);
+  else _ocItemsExpanded.add(ocId);
+  renderOCList();
+}
 
 function toggleConfigSub(subId){
   if(_configExpanded.has(subId)) _configExpanded.delete(subId);
@@ -1829,8 +1847,14 @@ function toggleConfigSub(subId){
     if(arrow)arrow.textContent=open?'▲':'▼';
   }
 }
-function expandAllConfig(){subconjuntos.forEach(s=>_configExpanded.add(s.id));renderSubList();}
-function collapseAllConfig(){_configExpanded.clear();renderSubList();}
+function expandAllConfig(){
+  subconjuntos.forEach(s=>_configExpanded.add(s.id));
+  if((currentProject().mode||'conjuntos')==='oc') renderOCList(); else renderSubList();
+}
+function collapseAllConfig(){
+  _configExpanded.clear();
+  if((currentProject().mode||'conjuntos')==='oc') renderOCList(); else renderSubList();
+}
 
 function _renderSubCards(subsArr, el, baseColorIdx, isOC, oc){
   subsArr.forEach((sub,si)=>{
