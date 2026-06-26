@@ -5868,7 +5868,7 @@ function renderOTTabla(){
         ${field('T. Run (min)',tRunMins)}
       </div>
       <!-- Fila 2: tiempos y precios editables -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px">
+      <div style="display:grid;grid-template-columns:90px 90px 90px 90px 90px 70px 90px 90px 90px 70px;gap:8px">
         ${inp('T. Prep (min)','tPrep',ot.tPrep,'number','min="0"')}
         ${inp('T. Produc (min)','tProduc',ot.tProduc,'number','min="0"')}
         ${autoVal('T. Total (min)',tTotal>0?tTotal:null)}
