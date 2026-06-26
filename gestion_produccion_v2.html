@@ -111,7 +111,7 @@ input:focus,select:focus{outline:none;border-color:var(--gris-oscuro)}
 .dep-trigger{display:flex;align-items:center;width:100%;font-size:11px;padding:4px 8px;border:1px solid var(--gris-claro);border-radius:6px;background:var(--blanco);color:var(--negro);height:30px;cursor:pointer;text-align:left}
 .dep-trigger:hover{border-color:var(--gris-oscuro)}
 .dep-trigger span:first-child{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dep-menu{position:absolute;top:32px;left:0;right:0;background:var(--blanco);border:1px solid var(--gris-claro);border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.12);z-index:999;padding:4px 0;min-width:160px;max-height:180px;overflow-y:auto}
+.dep-menu{position:fixed;background:var(--blanco);border:1px solid var(--gris-claro);border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.12);z-index:9999;padding:4px 0;min-width:160px;max-height:180px;overflow-y:auto}
 .dep-option{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:12px;cursor:pointer}
 .dep-option:hover{background:#f5f5f3}
 .dep-option input[type=checkbox]{width:13px;height:13px;cursor:pointer;flex-shrink:0;margin:0;accent-color:var(--negro)}
@@ -1593,7 +1593,15 @@ function toggleDepDrop(id,e){
   e.stopPropagation();
   document.querySelectorAll('.dep-menu').forEach(m=>{if(m.id!=='dep-menu-'+id)m.style.display='none'});
   const m=document.getElementById('dep-menu-'+id);
-  m.style.display=m.style.display==='none'?'block':'none';
+  const isOpen=m.style.display!=='none';
+  if(isOpen){m.style.display='none';return;}
+  // Posicionar fixed relativo al trigger (esquiva overflow:hidden/auto de ancestros)
+  const trigger=e.target.closest('.dep-trigger')||e.target;
+  const r=trigger.getBoundingClientRect();
+  m.style.top=(r.bottom+2)+'px';
+  m.style.left=r.left+'px';
+  m.style.width=r.width+'px';
+  m.style.display='block';
 }
 function toggleDep(compId,depId,checked){
   const c=components.find(x=>x.id===compId);if(!c)return;
