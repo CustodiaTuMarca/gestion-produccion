@@ -5434,7 +5434,7 @@ function saveOT(){
       compId:_otCompId,
       runId:_otRunId,
       runs:[{compId:_otCompId,runId:_otRunId}], // lista de runs vinculados
-      tPrep:'',tProduc:'',tTotal:'',precioUnit:'',precioVenta:'',desvio:'',obs:'',
+      tPrep:'',tProduc:'',tTotal:'',precioUnit:'',puMO:'',puMP:'',puTT:'',precioVenta:'',desvio:'',obs:'',
       ...fields
     });
   }
@@ -5734,6 +5734,12 @@ function calcDesvio(precioUnit,precioVenta){
   if(!u||!v)return '';
   return (((v-u)/u)*100).toFixed(1)+'%';
 }
+function calcDesvioFinal(puReal,puMP,puTT,puVenta){
+  const costo=(parseFloat(puReal)||0)+(parseFloat(puMP)||0)+(parseFloat(puTT)||0);
+  const v=parseFloat(puVenta)||0;
+  if(!costo||!v)return '';
+  return (((v-costo)/costo)*100).toFixed(1)+'%';
+}
 
 // ── OT Filter state ──────────────────────────────────────────
 let _otFilter='todas'; // 'todas'|'abiertas'|'completadas'|'anuladas'
@@ -5798,9 +5804,12 @@ function renderOTTabla(){
     const tPrep=parseInt(ot.tPrep)||0;
     const tProduc=parseInt(ot.tProduc)||0;
     const tTotal=tPrep+tProduc;
-    const desvio=calcDesvio(ot.precioUnit,ot.precioVenta);
+    const desvio=calcDesvio(ot.precioUnit,ot.puMO);
     const desvioNum=parseFloat(desvio)||0;
     const desvioColor=desvioNum>0?'#1a7a4a':desvioNum<0?'#c0392b':'#888';
+    const desvioFinal=calcDesvioFinal(ot.precioUnit,ot.puMP,ot.puTT,ot.precioVenta);
+    const desvioFinalNum=parseFloat(desvioFinal)||0;
+    const desvioFinalColor=desvioFinalNum>0?'#1a7a4a':desvioFinalNum<0?'#c0392b':'#888';
     const anulada=!!ot.anulada;
     const completada=!!ot.completada&&!anulada;
     const dis=anulada||completada?'disabled':'';
@@ -5813,12 +5822,24 @@ function renderOTTabla(){
     else               estadoBadge=`<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;background:#e8f0fe;color:#2980b9">⏳ Abierta</span>`;
 
     function field(lbl,val){return `<div><div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${lbl}</div><div style="font-size:12px;color:var(--negro)">${val||'—'}</div></div>`;}
+    const _rerenderFlds=['tPrep','tProduc','precioUnit','puMO','puMP','puTT','precioVenta'];
     function inp(lbl,fld,val,type='text',extra=''){
       return `<div><div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${lbl}</div>
         <input type="${type}" value="${val||''}" placeholder="—" ${dis} ${extra}
           style="width:100%;font-size:12px;border:1px solid #ddd;border-radius:5px;padding:3px 6px;background:${dis?'#f5f5f5':'#fff'}"
-          onchange="updateOTField(${ot.otNum},'${fld}',this.value)${fld==='tPrep'||fld==='tProduc'?';renderOTTabla()':''}">
+          onchange="updateOTField(${ot.otNum},'${fld}',this.value)${_rerenderFlds.includes(fld)?';renderOTTabla()':''}">
       </div>`;
+    }
+    function inpPrecio(lbl,fld,val){
+      return `<div><div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${lbl}</div>
+        <div style="display:flex;align-items:center;gap:3px"><span style="font-size:11px;color:#888">$</span>
+        <input type="number" value="${val||''}" placeholder="0.00" min="0" step="0.01" ${dis}
+          style="flex:1;font-size:12px;border:1px solid #ddd;border-radius:5px;padding:3px 6px;background:${dis?'#f5f5f5':'#fff'}"
+          onchange="updateOTField(${ot.otNum},'${fld}',this.value);renderOTTabla()"></div></div>`;
+    }
+    function autoVal(lbl,val,color='var(--negro)'){
+      return `<div><div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${lbl}</div>
+        <div style="font-size:13px;font-weight:700;color:${color};padding:4px 6px;background:#f5f5f3;border-radius:5px">${val||'—'}</div></div>`;
     }
 
     return `<div style="border:1.5px solid ${borderColor}33;border-left:4px solid ${borderColor};border-radius:10px;padding:12px 14px;margin-bottom:10px;background:${cardBg};${anulada?'opacity:.55':''}">
@@ -5849,20 +5870,14 @@ function renderOTTabla(){
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px">
         ${inp('T. Prep (min)','tPrep',ot.tPrep,'number','min="0"')}
         ${inp('T. Produc (min)','tProduc',ot.tProduc,'number','min="0"')}
-        <div><div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">T. Total (min)</div>
-          <div style="font-size:12px;font-weight:700;color:var(--negro);padding:4px 6px;background:#f5f5f3;border-radius:5px">${tTotal>0?tTotal:'—'}</div></div>
-        <div><div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Precio Unit (USD)</div>
-          <div style="display:flex;align-items:center;gap:3px"><span style="font-size:11px;color:#888">$</span>
-          <input type="number" value="${ot.precioUnit||''}" placeholder="0.00" min="0" step="0.01" ${dis}
-            style="flex:1;font-size:12px;border:1px solid #ddd;border-radius:5px;padding:3px 6px;background:${dis?'#f5f5f5':'#fff'}"
-            onchange="updateOTField(${ot.otNum},'precioUnit',this.value)"></div></div>
-        <div><div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Precio Venta (USD)</div>
-          <div style="display:flex;align-items:center;gap:3px"><span style="font-size:11px;color:#888">$</span>
-          <input type="number" value="${ot.precioVenta||''}" placeholder="0.00" min="0" step="0.01" ${dis}
-            style="flex:1;font-size:12px;border:1px solid #ddd;border-radius:5px;padding:3px 6px;background:${dis?'#f5f5f5':'#fff'}"
-            onchange="updateOTField(${ot.otNum},'precioVenta',this.value);renderOTTabla()"></div></div>
-        <div><div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Desvío %</div>
-          <div style="font-size:13px;font-weight:700;color:${desvioColor};padding:4px 6px;background:#f5f5f3;border-radius:5px">${desvio||'—'}</div></div>
+        ${autoVal('T. Total (min)',tTotal>0?tTotal:null)}
+        ${inpPrecio('P.U. Real','precioUnit',ot.precioUnit)}
+        ${inpPrecio('P.U. MO','puMO',ot.puMO)}
+        ${autoVal('% Desvío',desvio,desvioColor)}
+        ${inpPrecio('P.U. MP','puMP',ot.puMP)}
+        ${inpPrecio('P.U. TT','puTT',ot.puTT)}
+        ${inpPrecio('P.U. Venta','precioVenta',ot.precioVenta)}
+        ${autoVal('% Desvío Final',desvioFinal,desvioFinalColor)}
         ${inp('Observaciones','obs',ot.obs,'text','')}
       </div>
       ${descRunsVinculados(ot)?`<div style="margin-top:8px;font-size:10px;color:#888">${descRunsVinculados(ot)}</div>`:''}
@@ -5935,22 +5950,23 @@ function exportOTExcel(){
   allOTs.sort((a,b)=>a.otNum-b.otNum);
   const rows=[['OT N°','Fecha Pedido','Fecha Entrega','Cliente','Doc Asoc','Plano/Pieza',
     'Descripcion','Unidades','T. Run (min)','T. Prep (min)','T. Produc (min)','T. Total (min)',
-    'Precio Unit (USD)','Precio Venta (USD)','Desvío %','OBS','Proyecto']];
+    'P.U. Real','P.U. MO','% Desvío','P.U. MP','P.U. TT','P.U. Venta','% Desvío Final','OBS','Proyecto']];
   allOTs.forEach(ot=>{
     const tRunMins=calcTiempoRun(ot);
     const tPrep=parseInt(ot.tPrep)||0;
     const tProduc=parseInt(ot.tProduc)||0;
     const tTotal=tPrep+tProduc;
-    const desvio=calcDesvio(ot.precioUnit,ot.precioVenta);
+    const desvio=calcDesvio(ot.precioUnit,ot.puMO);
+    const desvioFinal=calcDesvioFinal(ot.precioUnit,ot.puMP,ot.puTT,ot.precioVenta);
     rows.push([ot.otNum,fmtDate(ot.fechaPedido),fmtDate(ot.fechaEntrega),
       ot.cliente,ot.docAsoc,ot.pieza,ot.descripcion,ot.unidades,
       tRunMins||'',tPrep||'',tProduc||'',tTotal||'',
-      ot.precioUnit||'',ot.precioVenta||'',desvio||'',ot.obs||'',ot._projName]);
+      ot.precioUnit||'',ot.puMO||'',desvio||'',ot.puMP||'',ot.puTT||'',ot.precioVenta||'',desvioFinal||'',ot.obs||'',ot._projName]);
   });
   const wb=XLSX.utils.book_new();
   const ws=XLSX.utils.aoa_to_sheet(rows);
   ws['!cols']=[{wch:8},{wch:14},{wch:14},{wch:20},{wch:12},{wch:14},{wch:25},
-    {wch:10},{wch:12},{wch:12},{wch:14},{wch:14},{wch:16},{wch:16},{wch:10},{wch:25},{wch:18}];
+    {wch:10},{wch:12},{wch:12},{wch:14},{wch:14},{wch:12},{wch:12},{wch:10},{wch:12},{wch:12},{wch:12},{wch:14},{wch:25},{wch:18}];
   XLSX.utils.book_append_sheet(wb,ws,'Órdenes de Trabajo');
   XLSX.writeFile(wb,`ordenes_trabajo_${dateStr(new Date())}.xlsx`);
 }
