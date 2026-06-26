@@ -5823,24 +5823,26 @@ function renderOTTabla(){
 
     function field(lbl,val){return `<div><div style="font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${lbl}</div><div style="font-size:12px;color:var(--negro)">${val||'—'}</div></div>`;}
     const _rerenderFlds=['tPrep','tProduc','precioUnit','puMO','puMP','puTT','precioVenta'];
-    const _lbl='font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;text-align:center';
-    function inp(lbl,fld,val,type='text',extra=''){
-      return `<div><div style="${_lbl}">${lbl}</div>
+    const _lbl='font-size:9px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;text-align:center;white-space:nowrap';
+    const _cell=(w)=>`display:flex;flex-direction:column;align-items:center;flex:0 0 auto;width:${w}`;
+    function inp(lbl,fld,val,w='80px',type='number',extra=''){
+      return `<div style="${_cell(w)}"><div style="${_lbl}">${lbl}</div>
         <input type="${type}" value="${val||''}" placeholder="—" ${dis} ${extra}
-          style="width:100%;font-size:12px;border:1px solid #ddd;border-radius:5px;padding:3px 6px;background:${dis?'#f5f5f5':'#fff'}"
+          style="width:100%;font-size:12px;border:1px solid #ddd;border-radius:5px;padding:3px 4px;text-align:center;background:${dis?'#f5f5f5':'#fff'}"
           onchange="updateOTField(${ot.otNum},'${fld}',this.value)${_rerenderFlds.includes(fld)?';renderOTTabla()':''}">
       </div>`;
     }
-    function inpPrecio(lbl,fld,val){
-      return `<div><div style="${_lbl}">${lbl}</div>
-        <div style="display:flex;align-items:center;gap:3px"><span style="font-size:11px;color:#888">$</span>
+    function inpPrecio(lbl,fld,val,w='85px'){
+      return `<div style="${_cell(w)}"><div style="${_lbl}">${lbl}</div>
         <input type="number" value="${val||''}" placeholder="0.00" min="0" step="0.01" ${dis}
-          style="flex:1;font-size:12px;border:1px solid #ddd;border-radius:5px;padding:3px 6px;background:${dis?'#f5f5f5':'#fff'}"
-          onchange="updateOTField(${ot.otNum},'${fld}',this.value);renderOTTabla()"></div></div>`;
+          style="width:100%;font-size:12px;border:1px solid #ddd;border-radius:5px;padding:3px 4px;text-align:center;background:${dis?'#f5f5f5':'#fff'}"
+          onchange="updateOTField(${ot.otNum},'${fld}',this.value);renderOTTabla()">
+      </div>`;
     }
-    function autoVal(lbl,val,color='var(--negro)'){
-      return `<div><div style="${_lbl}">${lbl}</div>
-        <div style="font-size:13px;font-weight:700;color:${color};padding:4px 6px;background:#f5f5f3;border-radius:5px;text-align:center">${val||'—'}</div></div>`;
+    function autoVal(lbl,val,color='var(--negro)',w='80px'){
+      return `<div style="${_cell(w)}"><div style="${_lbl}">${lbl}</div>
+        <div style="font-size:12px;font-weight:700;color:${color};padding:3px 4px;background:#f5f5f3;border-radius:5px;text-align:center;width:100%">${val||'—'}</div>
+      </div>`;
     }
 
     return `<div style="border:1.5px solid ${borderColor}33;border-left:4px solid ${borderColor};border-radius:10px;padding:12px 14px;margin-bottom:10px;background:${cardBg};${anulada?'opacity:.55':''}">
@@ -5868,19 +5870,25 @@ function renderOTTabla(){
         ${field('T. Run (min)',tRunMins)}
       </div>
       <!-- Fila 2: tiempos y precios editables -->
-      <div style="display:grid;grid-template-columns:90px 90px 90px 90px 90px 70px 90px 90px 90px 70px;gap:8px">
-        ${inp('T. Prep (min)','tPrep',ot.tPrep,'number','min="0"')}
-        ${inp('T. Produc (min)','tProduc',ot.tProduc,'number','min="0"')}
-        ${autoVal('T. Total (min)',tTotal>0?tTotal:null)}
-        ${inpPrecio('P.U. Real','precioUnit',ot.precioUnit)}
-        ${inpPrecio('P.U. MO','puMO',ot.puMO)}
-        ${autoVal('% Desvío',desvio,desvioColor)}
-        ${inpPrecio('P.U. MP','puMP',ot.puMP)}
-        ${inpPrecio('P.U. TT','puTT',ot.puTT)}
-        ${inpPrecio('P.U. Venta','precioVenta',ot.precioVenta)}
-        ${autoVal('% Desvío Final',desvioFinal,desvioFinalColor)}
+      <div style="display:flex;flex-wrap:nowrap;gap:12px;width:100%;overflow-x:auto;padding-bottom:4px">
+        ${inp('T. Prep (min)','tPrep',ot.tPrep,'80px','number','min="0"')}
+        ${inp('T. Produc (min)','tProduc',ot.tProduc,'80px','number','min="0"')}
+        ${autoVal('T. Total (min)',tTotal>0?tTotal:null,'var(--negro)','80px')}
+        ${inpPrecio('P.U. Real','precioUnit',ot.precioUnit,'85px')}
+        ${inpPrecio('P.U. MO','puMO',ot.puMO,'85px')}
+        ${autoVal('% Desvío',desvio,desvioColor,'75px')}
+        ${inpPrecio('P.U. MP','puMP',ot.puMP,'85px')}
+        ${inpPrecio('P.U. TT','puTT',ot.puTT,'85px')}
+        ${inpPrecio('P.U. Venta','precioVenta',ot.precioVenta,'85px')}
+        ${autoVal('% Desvío Final',desvioFinal,desvioFinalColor,'75px')}
       </div>
-      <div style="margin-top:8px">${inp('Observaciones','obs',ot.obs,'text','')}</div>
+      <!-- Fila 3: observaciones -->
+      <div style="margin-top:10px">
+        <div style="${_lbl}">Observaciones</div>
+        <input type="text" value="${ot.obs||''}" placeholder="—" ${dis}
+          style="width:100%;font-size:12px;border:1px solid #ddd;border-radius:5px;padding:3px 6px;background:${dis?'#f5f5f5':'#fff'}"
+          onchange="updateOTField(${ot.otNum},'obs',this.value)">
+      </div>
       ${descRunsVinculados(ot)?`<div style="margin-top:8px;font-size:10px;color:#888">${descRunsVinculados(ot)}</div>`:''}
     </div>`;
   }).join('');
