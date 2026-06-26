@@ -314,7 +314,7 @@ input:focus,select:focus{outline:none;border-color:var(--gris-oscuro)}
 
 <!-- STOCK -->
 <div class="pane" id="pane-stock">
-  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+  <div id="stock-toolbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
     <div style="display:flex;border:1px solid #ddd;border-radius:8px;overflow:hidden">
       <button id="btn-view-item" onclick="stockView='item';renderStock()" style="padding:5px 14px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:#1a1a1a;color:#fff">Por ítem</button>
       <button id="btn-view-dep" onclick="stockView='dep';renderStock()" style="padding:5px 14px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:#fff;color:#888">Por depósito</button>
@@ -328,8 +328,13 @@ input:focus,select:focus{outline:none;border-color:var(--gris-oscuro)}
     <button onclick="openArmarSub()" style="font-size:12px;font-weight:600;color:var(--negro);background:var(--amarillo);border:none;border-radius:6px;padding:5px 14px;cursor:pointer">🔧 Armar subconjunto</button>
     <button onclick="openArmarConj()" style="font-size:12px;font-weight:600;color:var(--blanco);background:var(--gris-oscuro);border:none;border-radius:6px;padding:5px 14px;cursor:pointer">⚙️ Armar conjunto</button>
   </div>
-  <div id="stock-content"></div>
-  <div id="stock-armados" style="margin-top:18px"></div>
+  <!-- KPIs fijos — se llena desde renderStock() -->
+  <div id="stock-metrics"></div>
+  <!-- Área scrolleable: contenido por ítem/depósito + subconj. armados -->
+  <div id="stock-scroll" style="overflow-y:auto;padding-bottom:20px">
+    <div id="stock-content"></div>
+    <div id="stock-armados" style="margin-top:18px"></div>
+  </div>
 </div>
 
 <!-- MODAL RUN -->
@@ -1361,6 +1366,7 @@ function toggleProjPanel(){
   document.getElementById('btn-proj-toggle').style.background=projPanelOpen?'#2980b9':'#eef5fc';
   document.getElementById('btn-proj-toggle').style.color=projPanelOpen?'#fff':'#2980b9';
   if(projPanelOpen)renderProjPanel();
+  requestAnimationFrame(applyTabScroll);
 }
 
 function renderProjPanel(){
@@ -1540,6 +1546,7 @@ function showTab(t){
   if(t==='ot')renderOTTabla();
   if(t==='np')renderNPTabla();
   if(t==='pendientes')renderPendientes();
+  if(t==='config'||t==='stock') requestAnimationFrame(applyTabScroll);
 }
 
 // ── Helpers tiempo ────────────────────────────────────────────
@@ -1656,6 +1663,7 @@ function renderConfigBar(){
     if(subSection) subSection.style.display='flex';
     document.getElementById('sub-list').style.display='block';
   }
+  requestAnimationFrame(applyTabScroll);
 }
 
 // ── OC Management ─────────────────────────────────────────────
@@ -1855,6 +1863,32 @@ function collapseAllConfig(){
   _configExpanded.clear();
   if((currentProject().mode||'conjuntos')==='oc') renderOCList(); else renderSubList();
 }
+
+// ── Scroll fijo para tabs Componentes y Avance/Stock ─────────
+function applyTabScroll(){
+  const pane=document.querySelector('.pane.active');
+  if(!pane) return;
+  const GAP=16; // margen inferior en px
+  if(pane.id==='pane-config'){
+    const p=currentProject();
+    const isOC=(p.mode||'conjuntos')==='oc';
+    const scrollEl=document.getElementById(isOC?'oc-list':'sub-list');
+    const otherEl=document.getElementById(isOC?'sub-list':'oc-list');
+    if(otherEl){otherEl.style.height='';otherEl.style.overflowY='';}
+    if(scrollEl&&scrollEl.style.display!=='none'){
+      const top=scrollEl.getBoundingClientRect().top;
+      scrollEl.style.height=Math.max(200,window.innerHeight-top-GAP)+'px';
+      scrollEl.style.overflowY='auto';
+    }
+  } else if(pane.id==='pane-stock'){
+    const scrollEl=document.getElementById('stock-scroll');
+    if(scrollEl){
+      const top=scrollEl.getBoundingClientRect().top;
+      scrollEl.style.height=Math.max(200,window.innerHeight-top-GAP)+'px';
+    }
+  }
+}
+window.addEventListener('resize',()=>requestAnimationFrame(applyTabScroll));
 
 function _renderSubCards(subsArr, el, baseColorIdx, isOC, oc){
   subsArr.forEach((sub,si)=>{
@@ -2571,7 +2605,8 @@ function renderStock(){
     if(!bodyHtml)bodyHtml=`<p style="color:#888;font-size:12px;text-align:center;padding:20px">No hay stock asignado a ningún depósito todavía.</p>`;
   }
 
-  document.getElementById('stock-content').innerHTML=metricHtml+(subconjuntos.length===0?'<p style="color:#888;font-size:12px">Agregá subconjuntos y componentes primero.</p>':bodyHtml);
+  document.getElementById('stock-metrics').innerHTML=metricHtml;
+  document.getElementById('stock-content').innerHTML=subconjuntos.length===0?'<p style="color:#888;font-size:12px">Agregá subconjuntos y componentes primero.</p>':bodyHtml;
   renderArmados();
 }
 
@@ -2625,6 +2660,7 @@ function renderArmados(){
   }
 
   document.getElementById('stock-armados').innerHTML=html;
+  requestAnimationFrame(applyTabScroll);
 }
 
 // ── Agregar stock a depósito ───────────────────────────────────
