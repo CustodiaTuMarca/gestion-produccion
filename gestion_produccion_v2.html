@@ -744,7 +744,7 @@ input:focus,select:focus{outline:none;border-color:var(--gris-oscuro)}
     <div style="background:var(--negro);padding:10px 18px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
       <span style="color:var(--amarillo);font-weight:700;font-size:14px">🛒 Nota de Pedido</span>
       <div style="display:flex;gap:8px">
-        <button onclick="saveNP();document.getElementById('modal-np').style.display='none';_npEditNum=null;_npCompId=null;_npRunId=null;renderStock();renderNPTabla();" style="font-size:12px;font-weight:700;padding:5px 14px;border:1.5px solid #555;border-radius:6px;cursor:pointer;background:transparent;color:#ccc">💾 Guardar</button>
+        <button onclick="saveAndCloseNP()" style="font-size:12px;font-weight:700;padding:5px 14px;border:1.5px solid #555;border-radius:6px;cursor:pointer;background:transparent;color:#ccc">💾 Guardar</button>
         <button onclick="printNP()" style="font-size:12px;font-weight:700;padding:5px 14px;border:none;border-radius:6px;cursor:pointer;background:var(--amarillo);color:var(--negro)">🖨 Imprimir A4</button>
         <button onclick="closeNP()" style="font-size:12px;font-weight:700;padding:5px 12px;border:1.5px solid #555;border-radius:6px;cursor:pointer;background:transparent;color:#ccc">✕</button>
       </div>
@@ -919,7 +919,7 @@ input:focus,select:focus{outline:none;border-color:var(--gris-oscuro)}
     <div class="ot-toolbar">
       <span class="ot-toolbar-title">📋 Orden de Trabajo</span>
       <div style="display:flex;gap:8px">
-        <button onclick="saveOT();document.getElementById('modal-ot').style.display='none';_otCompId=null;_otRunId=null;renderStock();" style="font-size:12px;font-weight:700;padding:5px 14px;border:1.5px solid #555;border-radius:6px;cursor:pointer;background:transparent;color:#ccc">💾 Guardar</button>
+        <button onclick="saveAndCloseOT()" style="font-size:12px;font-weight:700;padding:5px 14px;border:1.5px solid #555;border-radius:6px;cursor:pointer;background:transparent;color:#ccc">💾 Guardar</button>
         <button onclick="printOT()" style="font-size:12px;font-weight:700;padding:5px 14px;border:none;border-radius:6px;cursor:pointer;background:var(--amarillo);color:var(--negro)">🖨 Imprimir A4</button>
         <button onclick="closeOT()" style="font-size:12px;font-weight:700;padding:5px 12px;border:1.5px solid #555;border-radius:6px;cursor:pointer;background:transparent;color:#ccc">✕ Cerrar</button>
       </div>
@@ -1242,6 +1242,8 @@ const _otLogoHorizontal="/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAH
 
 // Contador global NP y lista de proveedores (compartido entre proyectos)
 let _npCounter=18;
+let _uidSeq=Math.floor(Date.now()/1000); // base timestamp-based, safe integer
+function _genUid(){return ++_uidSeq;}
 let _proveedores=[]; // ['Proveedor A', 'Proveedor B', ...]
 
 function makeProject(name, mode){
@@ -5277,13 +5279,13 @@ function openOT(compId,runId){
   const allActiveOTs=(currentProject().ordenes||[]).filter(o=>!o.anulada);
 
   if(existing){
-    _otEditNum=existing.otNum;
+    _otEditNum=existing._uid||existing.otNum;
     loadOTFields(existing);
     // Mostrar info de que ya tiene OT
     document.getElementById('ot-numero').textContent=existing.otNum;
     _setOTNumeroEditable(false);
     // Mostrar selector para vincular a OT diferente
-    _showOTLinkSelector(compId,runId,allActiveOTs,existing.otNum);
+    _showOTLinkSelector(compId,runId,allActiveOTs,existing._uid||existing.otNum);
   } else {
     _otEditNum=null;
     clearOTFields();
@@ -5327,14 +5329,14 @@ function _showOTLinkSelector(compId,runId,allOTs,currentOtNum){
   wrap.style.display='block';
   const sel=document.getElementById('ot-link-sel');
   sel.innerHTML=`<option value="">— Nueva OT —</option>`+
-    allOTs.map(o=>`<option value="${o.otNum}" ${o.otNum===currentOtNum?'selected':''}>
+    allOTs.map(o=>{const k=o._uid||o.otNum;return`<option value="${k}" ${k===currentOtNum?'selected':''}>
       OT N°${o.otNum} · ${o.descripcion||o.pieza||'Sin descripción'}
-    </option>`).join('');
+    </option>`;}).join('');
   sel.onchange=function(){
-    const num=+this.value||null;
-    if(num){
-      const ot=allOTs.find(o=>o.otNum===num);
-      if(ot){_otEditNum=num;loadOTFields(ot);}
+    const key=+this.value||null;
+    if(key){
+      const ot=allOTs.find(o=>(o._uid||o.otNum)===key);
+      if(ot){_otEditNum=key;loadOTFields(ot);}
     } else {
       _otEditNum=null;clearOTFields();
       document.getElementById('ot-numero-input').value='';
@@ -5416,8 +5418,12 @@ function saveOT(){
   if(!proj.ordenes)proj.ordenes=[];
   const fields=readOTFields();
   if(_otEditNum){
-    // actualizar existente
-    const ot=proj.ordenes.find(o=>o.otNum===_otEditNum);
+    // actualizar existente — buscar por _uid si está disponible, si no por otNum
+    let ot=null;
+    for(const p of projects){
+      ot=(p.ordenes||[]).find(o=>o._uid===_otEditNum||(o.otNum===_otEditNum&&!o._uid));
+      if(ot)break;
+    }
     if(ot){
       Object.assign(ot,fields);
       // agregar run actual a la lista si no está
@@ -5425,7 +5431,6 @@ function saveOT(){
         if(!ot.runs)ot.runs=[{compId:ot.compId,runId:ot.runId}];
         const alreadyLinked=ot.runs.some(r=>r.compId===_otCompId&&r.runId===_otRunId);
         if(!alreadyLinked)ot.runs.push({compId:_otCompId,runId:_otRunId});
-        // retrocompatibilidad: mantener compId/runId del primer run
         ot.compId=ot.runs[0].compId;
         ot.runId=ot.runs[0].runId;
       }
@@ -5433,33 +5438,53 @@ function saveOT(){
   } else {
     // nueva OT — usar número manual si se ingresó, si no auto-incrementar
     const inputNum=+(document.getElementById('ot-numero-input').value)||0;
+    if(inputNum>0){
+      const dup=projects.some(p=>(p.ordenes||[]).some(o=>o.otNum===inputNum));
+      if(dup){
+        alert(`La OT N°${inputNum} ya existe en otro proyecto. Ingresá un número diferente.`);
+        return false;
+      }
+    }
     const otNum=inputNum>0?inputNum:_otCounter;
     if(otNum>=_otCounter) _otCounter=otNum+1; else _otCounter++;
     document.getElementById('ot-numero').textContent=otNum;
     _setOTNumeroEditable(false);
-    _otEditNum=otNum;
+    _otEditNum=_genUid();
     proj.ordenes.push({
+      _uid:_otEditNum,
       otNum,
       projId:proj.id,
       compId:_otCompId,
       runId:_otRunId,
-      runs:[{compId:_otCompId,runId:_otRunId}], // lista de runs vinculados
+      runs:[{compId:_otCompId,runId:_otRunId}],
       tPrep:'',tProduc:'',tTotal:'',precioUnit:'',puMO:'',puMP:'',puTT:'',precioVenta:'',desvio:'',obs:'',
       ...fields
     });
   }
   scheduleSync();
+  return true;
 }
 
+function _findOTByKey(k){
+  for(const p of projects){
+    const ot=(p.ordenes||[]).find(o=>o._uid===k||(o.otNum===k&&!o._uid));
+    if(ot)return{proj:p,ot};
+  }
+  return null;
+}
+function saveAndCloseOT(){
+  if(saveOT()===false)return;
+  document.getElementById('modal-ot').style.display='none';
+  _otCompId=null;_otRunId=null;_otEditNum=null;
+  renderStock();
+}
 function closeOT(){
-  // Cerrar sin guardar — solo si ya tiene número asignado (ya fue guardada antes) actualizar campos
-  // Si es nueva y no se guardó, no crear el registro
   document.getElementById('modal-ot').style.display='none';
   _otCompId=null;_otRunId=null;_otEditNum=null;
 }
 
 function printOT(){
-  saveOT();
+  if(saveOT()===false)return;
   const otNum=document.getElementById('ot-numero').textContent;
   const fields={
     fechaPedido: document.getElementById('ot-fecha-pedido').value,
@@ -5766,20 +5791,14 @@ function setOTFilter(f){
   renderOTTabla();
 }
 
-function completarOT(otNum){
-  for(const p of projects){
-    const ot=(p.ordenes||[]).find(o=>o.otNum===otNum);
-    if(ot){
-      const estaCompleta=!!ot.completada;
-      ot.completada=!estaCompleta;
-      addLog('mov',
-        `${estaCompleta?'↩ OT reabierta':'✓ OT completada'}: N°${otNum}`,
-        ot.descripcion||'','');
-      scheduleSync();
-      renderOTTabla();
-      return;
-    }
-  }
+function completarOT(k){
+  const found=_findOTByKey(k);
+  if(!found)return;
+  const{ot}=found;
+  const estaCompleta=!!ot.completada;
+  ot.completada=!estaCompleta;
+  addLog('mov',`${estaCompleta?'↩ OT reabierta':'✓ OT completada'}: N°${ot.otNum}`,ot.descripcion||'','');
+  scheduleSync();renderOTTabla();
 }
 
 function renderOTTabla(){
@@ -5810,6 +5829,7 @@ function renderOTTabla(){
   }
 
   lista.innerHTML=filtered.map(ot=>{
+    const _k=ot._uid||ot.otNum;
     const tRunMins=calcTiempoRun(ot);
     const tPrep=parseInt(ot.tPrep)||0;
     const tProduc=parseInt(ot.tProduc)||0;
@@ -5839,14 +5859,14 @@ function renderOTTabla(){
       return `<div style="${_cell(w)}"><div style="${_lbl}">${lbl}</div>
         <input type="${type}" value="${val||''}" placeholder="—" ${dis} ${extra}
           style="width:100%;font-size:12px;border:1px solid #ddd;border-radius:5px;padding:3px 4px;text-align:center;background:${dis?'#f5f5f5':'#fff'}"
-          onchange="updateOTField(${ot.otNum},'${fld}',this.value)${_rerenderFlds.includes(fld)?';renderOTTabla()':''}">
+          onchange="updateOTField(${_k},'${fld}',this.value)${_rerenderFlds.includes(fld)?';renderOTTabla()':''}">
       </div>`;
     }
     function inpPrecio(lbl,fld,val,w='85px'){
       return `<div style="${_cell(w)}"><div style="${_lbl}">${lbl}</div>
         <input type="number" value="${val||''}" placeholder="0.00" min="0" step="0.01" ${dis}
           style="width:100%;font-size:12px;border:1px solid #ddd;border-radius:5px;padding:3px 4px;text-align:center;background:${dis?'#f5f5f5':'#fff'}"
-          onchange="updateOTField(${ot.otNum},'${fld}',this.value);renderOTTabla()">
+          onchange="updateOTField(${_k},'${fld}',this.value);renderOTTabla()">
       </div>`;
     }
     function autoVal(lbl,val,color='var(--negro)',w='80px'){
@@ -5864,9 +5884,9 @@ function renderOTTabla(){
         <span style="font-size:11px;color:#888;flex:1">${ot.descripcion||''}</span>
         <!-- Botones -->
         <div style="display:flex;gap:5px;flex-shrink:0">
-          ${!anulada?`<button onclick="reopenOT(${ot.otNum})" style="font-size:11px;padding:3px 10px;border:1px solid var(--negro);border-radius:5px;cursor:pointer;background:var(--negro);color:var(--amarillo);font-weight:600">🖨 Ver / Imprimir</button>`:''}
-          ${!anulada?`<button onclick="completarOT(${ot.otNum})" style="font-size:11px;padding:3px 10px;border:1px solid ${completada?'#888':'#1a7a4a'};border-radius:5px;cursor:pointer;background:${completada?'#f5f5f5':'#e8f8ef'};color:${completada?'#888':'#1a7a4a'};font-weight:600">${completada?'↩ Reabrir':'✓ Completar'}</button>`:''}
-          <button onclick="anularOT(${ot.otNum})" style="font-size:11px;padding:3px 10px;border:1px solid ${anulada?'#1a7a4a':'#c0392b'};border-radius:5px;cursor:pointer;background:${anulada?'#e8f8ef':'#fff5f5'};color:${anulada?'#1a7a4a':'#c0392b'}">${anulada?'↩ Reactivar':'✕ Anular'}</button>
+          ${!anulada?`<button onclick="reopenOT(${_k})" style="font-size:11px;padding:3px 10px;border:1px solid var(--negro);border-radius:5px;cursor:pointer;background:var(--negro);color:var(--amarillo);font-weight:600">🖨 Ver / Imprimir</button>`:''}
+          ${!anulada?`<button onclick="completarOT(${_k})" style="font-size:11px;padding:3px 10px;border:1px solid ${completada?'#888':'#1a7a4a'};border-radius:5px;cursor:pointer;background:${completada?'#f5f5f5':'#e8f8ef'};color:${completada?'#888':'#1a7a4a'};font-weight:600">${completada?'↩ Reabrir':'✓ Completar'}</button>`:''}
+          <button onclick="anularOT(${_k})" style="font-size:11px;padding:3px 10px;border:1px solid ${anulada?'#1a7a4a':'#c0392b'};border-radius:5px;cursor:pointer;background:${anulada?'#e8f8ef':'#fff5f5'};color:${anulada?'#1a7a4a':'#c0392b'}">${anulada?'↩ Reactivar':'✕ Anular'}</button>
         </div>
       </div>
       <!-- Fila 1: datos básicos -->
@@ -5897,7 +5917,7 @@ function renderOTTabla(){
         <div style="${_lbl}">Observaciones</div>
         <input type="text" value="${ot.obs||''}" placeholder="—" ${dis}
           style="width:100%;font-size:12px;border:1px solid #ddd;border-radius:5px;padding:3px 6px;background:${dis?'#f5f5f5':'#fff'}"
-          onchange="updateOTField(${ot.otNum},'obs',this.value)">
+          onchange="updateOTField(${_k},'obs',this.value)">
       </div>
       ${descRunsVinculados(ot)?`<div style="margin-top:8px;font-size:10px;color:#888">${descRunsVinculados(ot)}</div>`:''}
     </div>`;
@@ -5905,59 +5925,45 @@ function renderOTTabla(){
 }
 
 
-function updateOTField(otNum,field,value){
-  projects.forEach(p=>{
-    const ot=(p.ordenes||[]).find(o=>o.otNum===otNum);
-    if(ot){ot[field]=value;scheduleSync();}
-  });
+function updateOTField(k,field,value){
+  const found=_findOTByKey(k);
+  if(found){found.ot[field]=value;scheduleSync();}
 }
 
-function anularOT(otNum){
-  for(const p of projects){
-    const ot=(p.ordenes||[]).find(o=>o.otNum===otNum);
-    if(ot){
-      const estaAnulada=!!ot.anulada;
-      if(estaAnulada){
-        ot.anulada=false;
-        addLog('mov',`↩ OT N°${otNum} reactivada`,ot.descripcion||'','');
-      } else {
-        if(!confirm(`¿Anular la OT N°${otNum}? Quedará registrada pero marcada como anulada.`))return;
-        ot.anulada=true;
-        addLog('deshacer',`✕ OT N°${otNum} anulada`,ot.descripcion||'','');
-      }
-      scheduleSync();
-      renderOTTabla();
-      return;
-    }
+function anularOT(k){
+  const found=_findOTByKey(k);
+  if(!found)return;
+  const{ot}=found;
+  const estaAnulada=!!ot.anulada;
+  if(estaAnulada){
+    ot.anulada=false;
+    addLog('mov',`↩ OT N°${ot.otNum} reactivada`,ot.descripcion||'','');
+  } else {
+    if(!confirm(`¿Anular la OT N°${ot.otNum}? Quedará registrada pero marcada como anulada.`))return;
+    ot.anulada=true;
+    addLog('deshacer',`✕ OT N°${ot.otNum} anulada`,ot.descripcion||'','');
   }
+  scheduleSync();renderOTTabla();
 }
 
-function reopenOT(otNum){
-  for(const p of projects){
-    const ot=(p.ordenes||[]).find(o=>o.otNum===otNum);
-    if(ot){
-      // Cambiar proyecto primero (reconstruye el DOM)
-      if(p.id!==activeProjectId) setActiveProject(p.id);
-      // Abrir modal después de que el DOM se estabilice
-      const firstRun=ot.runs&&ot.runs.length>0
-        ?ot.runs[0]
-        :{compId:ot.compId,runId:ot.runId};
-      _otCompId=firstRun.compId;
-      _otRunId=firstRun.runId;
-      _otEditNum=ot.otNum;
-      setTimeout(()=>{
-        clearOTFields();
-        document.getElementById('ot-numero').textContent=ot.otNum;
-        loadOTFields(ot);
-        buildProdRows();
-        const allActiveOTs=(p.ordenes||[]).filter(o=>!o.anulada);
-        _showOTLinkSelector(firstRun.compId,firstRun.runId,allActiveOTs,ot.otNum);
-        document.getElementById('modal-ot').style.display='flex';
-      },50);
-      return;
-    }
-  }
-  alert('No se encontró la OT N°'+otNum);
+function reopenOT(k){
+  const found=_findOTByKey(k);
+  if(!found){alert('No se encontró la OT.');return;}
+  const{proj:p,ot}=found;
+  if(p.id!==activeProjectId) setActiveProject(p.id);
+  const firstRun=ot.runs&&ot.runs.length>0?ot.runs[0]:{compId:ot.compId,runId:ot.runId};
+  _otCompId=firstRun.compId;
+  _otRunId=firstRun.runId;
+  _otEditNum=ot._uid||ot.otNum;
+  setTimeout(()=>{
+    clearOTFields();
+    document.getElementById('ot-numero').textContent=ot.otNum;
+    loadOTFields(ot);
+    buildProdRows();
+    const allActiveOTs=(p.ordenes||[]).filter(o=>!o.anulada);
+    _showOTLinkSelector(firstRun.compId,firstRun.runId,allActiveOTs,ot._uid||ot.otNum);
+    document.getElementById('modal-ot').style.display='flex';
+  },50);
 }
 
 function exportOTExcel(){
@@ -6031,15 +6037,19 @@ function openNPForRun(compId, runId){
   if(allActiveNPs.length>0){
     linkWrap.style.display='block';
     linkSel.innerHTML=`<option value="">— Nueva NP —</option>`+
-      allActiveNPs.map(np=>`<option value="${np.npNum}" ${existing&&np.npNum===existing.npNum?'selected':''}>
-        NP N°${np.npNum}${np.proveedor?' · '+np.proveedor:''} · ${fmtDate(np.fecha)} (${np.items?.length||0} ítems)
-      </option>`).join('');
+      allActiveNPs.map(np=>{
+        const k=np._uid||np.npNum;
+        const existK=existing?existing._uid||existing.npNum:null;
+        return `<option value="${k}" ${existing&&k===existK?'selected':''}>
+          NP N°${np.npNum}${np.proveedor?' · '+np.proveedor:''} · ${fmtDate(np.fecha)} (${np.items?.length||0} ítems)
+        </option>`;
+      }).join('');
   } else {
     linkWrap.style.display='none';
   }
 
   if(existing){
-    _npEditNum=existing.npNum;
+    _npEditNum=existing._uid||existing.npNum;
     loadNPFields(existing);
     // Agregar ítem del componente actual a la NP si no está ya
     const itemDesc=comp?.name||'';
@@ -6075,21 +6085,18 @@ function onNPLinkSelect(val){
     return;
   }
   // Cargar NP existente y agregar el ítem del run actual
-  const npNum=+val;
-  for(const p of projects){
-    const np=(p.notasPedido||[]).find(n=>n.npNum===npNum);
-    if(np){
-      _npEditNum=npNum;
-      loadNPFields(np);
-      // Agregar ítem del componente actual si no está
-      const comp=components.find(c=>c.id===_npCompId);
-      const run=comp?.runs?.find(r=>r.id===_npRunId);
-      const itemDesc=comp?.name||'';
-      const alreadyInNP=(np.items||[]).some(i=>i.desc===itemDesc);
-      if(!alreadyInNP && itemDesc){
-        addNPItem(itemDesc, run?.qty||1);
-      }
-      return;
+  const key=+val;
+  const found=_findNPByKey(key);
+  if(found){
+    const np=found.np;
+    _npEditNum=key;
+    loadNPFields(np);
+    const comp=components.find(c=>c.id===_npCompId);
+    const run=comp?.runs?.find(r=>r.id===_npRunId);
+    const itemDesc=comp?.name||'';
+    const alreadyInNP=(np.items||[]).some(i=>i.desc===itemDesc);
+    if(!alreadyInNP && itemDesc){
+      addNPItem(itemDesc, run?.qty||1);
     }
   }
 }
@@ -6175,35 +6182,41 @@ function saveNP(){
   const obs=document.getElementById('np-obs').value.trim();
   const items=readNPItems();
 
-  // Guardar proveedor nuevo
   if(proveedor && !_proveedores.includes(proveedor)){
     _proveedores.push(proveedor);
     _proveedores.sort();
   }
 
   if(_npEditNum){
-    // Editar existente (buscar en todos los proyectos)
-    for(const proj of projects){
-      const np=(proj.notasPedido||[]).find(n=>n.npNum===_npEditNum);
-      if(np){Object.assign(np,{proveedor,fecha,solicitado,obs,items});break;}
-    }
+    // Editar existente — buscar por _uid si está disponible, si no por npNum
+    const found=_findNPByKey(_npEditNum);
+    if(found)Object.assign(found.np,{proveedor,fecha,solicitado,obs,items});
   } else {
-    // Nueva NP — usar número manual si se ingresó, si no auto-incrementar
+    // Nueva NP — validar que el número no exista ya en ningún proyecto
     const inputNum=+(document.getElementById('np-numero-input').value)||0;
+    if(inputNum>0){
+      const dup=projects.some(pr=>(pr.notasPedido||[]).some(n=>n.npNum===inputNum));
+      if(dup){
+        alert(`La NP N°${inputNum} ya existe en otro proyecto. Ingresá un número diferente.`);
+        return false;
+      }
+    }
     const npNum=inputNum>0?inputNum:_npCounter;
     if(npNum>=_npCounter) _npCounter=npNum+1; else _npCounter++;
     document.getElementById('np-numero-display').textContent=npNum;
     _setNPNumeroEditable(false);
-    _npEditNum=npNum;
+    _npEditNum=_genUid();
     p.notasPedido.push({
+      _uid:_npEditNum,
       npNum, proveedor, fecha, solicitado, obs, items,
       compId:_npCompId, runId:_npRunId, projId:p.id,
-      estado:'pendiente'  // 'pendiente' | 'recibida' | 'anulada'
+      estado:'pendiente'
     });
     addLog('carga',`🛒 NP N°${npNum} emitida`,`Proveedor: ${proveedor||'(sin proveedor)'}`,obs);
   }
   scheduleSync();
   renderNPTabla();
+  return true;
 }
 
 function closeNP(){
@@ -6213,8 +6226,21 @@ function closeNP(){
   renderStock();
 }
 
+function _findNPByKey(k){
+  for(const p of projects){
+    const np=(p.notasPedido||[]).find(n=>n._uid===k||(n.npNum===k&&!n._uid));
+    if(np)return{proj:p,np};
+  }
+  return null;
+}
+function saveAndCloseNP(){
+  if(saveNP()===false)return;
+  document.getElementById('modal-np').style.display='none';
+  _npEditNum=null;_npCompId=null;_npRunId=null;
+  renderStock();renderNPTabla();
+}
 function printNP(){
-  saveNP();
+  if(saveNP()===false)return;
   const npNum=document.getElementById('np-numero-display').textContent;
   const proveedor=document.getElementById('np-proveedor').value.trim();
   const fecha=document.getElementById('np-fecha').value;
@@ -6353,6 +6379,7 @@ function renderNPTabla(){
   }
 
   tbody.innerHTML=filtered.map(np=>{
+    const _k=np._uid||np.npNum;
     const estadoColors={pendiente:'#2980b9',enviada:'#8e44ad',recibida:'#1a7a4a',anulada:'#c0392b'};
     const estadoLabels={pendiente:'⏳ Pendiente',enviada:'📤 Enviada',recibida:'✓ Recibida',anulada:'✕ Anulada'};
     const col=estadoColors[np.estado||'pendiente']||'#888';
@@ -6383,7 +6410,7 @@ function renderNPTabla(){
       </td>
       <td>
         <select style="font-size:11px;border-radius:5px;padding:2px 5px;border:1px solid ${col};color:${col};font-weight:700"
-          onchange="changeNPEstado(${np.npNum},this.value)">
+          onchange="changeNPEstado(${_k},this.value)">
           <option value="pendiente" ${np.estado==='pendiente'?'selected':''}>⏳ Pendiente</option>
           <option value="enviada"   ${np.estado==='enviada'?'selected':''}>📤 Enviada</option>
           <option value="recibida"  ${np.estado==='recibida'?'selected':''}>✓ Recibida</option>
@@ -6392,49 +6419,39 @@ function renderNPTabla(){
       </td>
       <td style="white-space:nowrap">
         <div style="display:flex;gap:4px">
-          <button onclick="editNP(${np.npNum})" style="font-size:10px;padding:2px 8px;border:1px solid var(--negro);border-radius:4px;cursor:pointer;background:var(--negro);color:var(--blanco)">Ver / Editar</button>
-          <button onclick="printNPByNum(${np.npNum})" style="font-size:10px;padding:2px 8px;border:none;border-radius:4px;cursor:pointer;background:var(--amarillo);color:var(--negro);font-weight:700">🖨</button>
+          <button onclick="editNP(${_k})" style="font-size:10px;padding:2px 8px;border:1px solid var(--negro);border-radius:4px;cursor:pointer;background:var(--negro);color:var(--blanco)">Ver / Editar</button>
+          <button onclick="printNPByNum(${_k})" style="font-size:10px;padding:2px 8px;border:none;border-radius:4px;cursor:pointer;background:var(--amarillo);color:var(--negro);font-weight:700">🖨</button>
         </div>
       </td>
     </tr>`;
   }).join('');
 }
 
-function changeNPEstado(npNum,estado){
-  for(const p of projects){
-    const np=(p.notasPedido||[]).find(n=>n.npNum===npNum);
-    if(np){
-      np.estado=estado;
-      addLog('mov',`🛒 NP N°${npNum} → ${estado}`,np.proveedor||'','');
-      scheduleSync();renderNPTabla();return;
-    }
-  }
+function changeNPEstado(k,estado){
+  const found=_findNPByKey(k);
+  if(!found)return;
+  const{np}=found;
+  np.estado=estado;
+  addLog('mov',`🛒 NP N°${np.npNum} → ${estado}`,np.proveedor||'','');
+  scheduleSync();renderNPTabla();
 }
 
-function editNP(npNum){
-  for(const p of projects){
-    const np=(p.notasPedido||[]).find(n=>n.npNum===npNum);
-    if(np){
-      if(p.id!==activeProjectId)setActiveProject(p.id);
-      setTimeout(()=>{
-        _npEditNum=npNum;_npCompId=np.compId;_npRunId=np.runId;
-        loadNPFields(np);
-        document.getElementById('modal-np').style.display='flex';
-      },50);
-      return;
-    }
-  }
+function editNP(k){
+  const found=_findNPByKey(k);
+  if(!found)return;
+  const{proj:p,np}=found;
+  if(p.id!==activeProjectId)setActiveProject(p.id);
+  setTimeout(()=>{
+    _npEditNum=k;_npCompId=np.compId;_npRunId=np.runId;
+    loadNPFields(np);
+    document.getElementById('modal-np').style.display='flex';
+  },50);
 }
 
-function printNPByNum(npNum){
-  for(const p of projects){
-    const np=(p.notasPedido||[]).find(n=>n.npNum===npNum);
-    if(np){
-      editNP(npNum);
-      setTimeout(()=>printNP(),300);
-      return;
-    }
-  }
+function printNPByNum(k){
+  if(!_findNPByKey(k))return;
+  editNP(k);
+  setTimeout(()=>printNP(),300);
 }
 
 // Icono base64 para la NP (usamos el mismo que la OT)
