@@ -1595,19 +1595,22 @@ function toggleDepDrop(id,e){
   e.stopPropagation();
   document.querySelectorAll('.dep-menu').forEach(m=>{if(m.id!=='dep-menu-'+id)m.style.display='none'});
   const m=document.getElementById('dep-menu-'+id);
-  const isOpen=m.style.display!=='none';
+  if(!m)return;
+  const isOpen=m.style.display==='block';
   if(isOpen){m.style.display='none';return;}
-  // Posicionar fixed relativo al trigger (esquiva overflow:hidden/auto de ancestros)
-  const trigger=e.target.closest('.dep-trigger')||e.target;
+  // Usar el trigger del DOM actual: evita rect (0,0) si un onblur regeneró el DOM
+  // antes de que llegara el evento click (el e.target quedaría desconectado del árbol)
+  const trigger=(m.parentElement&&m.parentElement.querySelector('.dep-trigger'))||
+                 e.target.closest('.dep-trigger')||e.target;
+  // Asegurar visibilidad dentro del contenedor scroll antes de calcular posición
+  trigger.scrollIntoView({block:'nearest'});
   const r=trigger.getBoundingClientRect();
-  const menuMaxH=180; // max-height del dep-menu
+  const menuMaxH=180;
   const spaceBelow=window.innerHeight-r.bottom;
-  // Si hay espacio suficiente abajo, o más espacio abajo que arriba → abrir abajo
   if(spaceBelow>=menuMaxH||spaceBelow>=r.top){
     m.style.top=(r.bottom+2)+'px';
     m.style.bottom='';
   } else {
-    // Abrir arriba del trigger
     m.style.bottom=(window.innerHeight-r.top+2)+'px';
     m.style.top='';
   }
