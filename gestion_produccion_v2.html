@@ -1598,7 +1598,17 @@ function toggleDepDrop(id,e){
   // Posicionar fixed relativo al trigger (esquiva overflow:hidden/auto de ancestros)
   const trigger=e.target.closest('.dep-trigger')||e.target;
   const r=trigger.getBoundingClientRect();
-  m.style.top=(r.bottom+2)+'px';
+  const menuMaxH=180; // max-height del dep-menu
+  const spaceBelow=window.innerHeight-r.bottom;
+  // Si hay espacio suficiente abajo, o más espacio abajo que arriba → abrir abajo
+  if(spaceBelow>=menuMaxH||spaceBelow>=r.top){
+    m.style.top=(r.bottom+2)+'px';
+    m.style.bottom='';
+  } else {
+    // Abrir arriba del trigger
+    m.style.bottom=(window.innerHeight-r.top+2)+'px';
+    m.style.top='';
+  }
   m.style.left=r.left+'px';
   m.style.width=r.width+'px';
   m.style.display='block';
