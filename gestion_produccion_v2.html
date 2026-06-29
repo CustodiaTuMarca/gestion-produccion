@@ -1870,13 +1870,7 @@ function toggleOCItems(ocId){
 function toggleConfigSub(subId){
   if(_configExpanded.has(subId)) _configExpanded.delete(subId);
   else _configExpanded.add(subId);
-  const detail=document.getElementById(`cfg-detail-${subId}`);
-  const arrow=document.getElementById(`cfg-arrow-${subId}`);
-  if(detail){
-    const open=_configExpanded.has(subId);
-    detail.style.display=open?'block':'none';
-    if(arrow)arrow.textContent=open?'▲':'▼';
-  }
+  if((currentProject().mode||'conjuntos')==='oc') renderOCList(); else renderSubList();
 }
 function expandAllConfig(){
   subconjuntos.forEach(s=>_configExpanded.add(s.id));
@@ -2090,6 +2084,7 @@ function removeSub(id){
   renderSubList(); scheduleSync();
 }
 function addComp(sid){
+  _configExpanded.add(sid);
   components.push({id:++cpId,subId:sid,name:'',machine:'',qty:1,mins:0,dias:1,deps:[],runs:[]});
   renderSubList(); scheduleSync();
 }
