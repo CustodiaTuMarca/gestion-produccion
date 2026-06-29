@@ -4362,7 +4362,8 @@ function saveOT(){
         return false;
       }
     }
-    const otNum=inputNum>0?inputNum:_otCounter;
+    const _liveMaxOt=projects.reduce((mx,p)=>Math.max(mx,...(p.ordenes||[]).map(o=>o.otNum||0)),0);
+    const otNum=inputNum>0?inputNum:Math.max(274,_liveMaxOt+1);
     _otCounter=Math.max(_otCounter, otNum)+1;
     document.getElementById('ot-numero').textContent=otNum;
     _setOTNumeroEditable(false);
@@ -5118,7 +5119,8 @@ function saveNP(){
         return false;
       }
     }
-    const npNum=inputNum>0?inputNum:_npCounter;
+    const _liveMaxNp=projects.reduce((mx,p)=>Math.max(mx,...(p.notasPedido||[]).map(n=>n.npNum||0)),0);
+    const npNum=inputNum>0?inputNum:Math.max(30,_liveMaxNp+1);
     _npCounter=Math.max(_npCounter, npNum)+1;
     document.getElementById('np-numero-display').textContent=npNum;
     _setNPNumeroEditable(false);
