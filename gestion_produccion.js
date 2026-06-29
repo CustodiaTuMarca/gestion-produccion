@@ -6035,9 +6035,9 @@ async function loadFromFirestore(){
         ganttSelectedIds = data.ganttSelectedIds || [data.projects[0].id];
         _projIdSeq       = data._projIdSeq || (Math.max(...data.projects.map(p=>p.id))+1);
         const _maxOtFs=data.projects.reduce((mx,p)=>Math.max(mx,...(p.ordenes||[]).map(o=>o.otNum||0)),0);
-        _otCounter=Math.max(_otCounter, data._otCounter||0, _maxOtFs+1);
+        _otCounter=Math.max(_otCounter, _maxOtFs+1);
         const _maxNpFs=data.projects.reduce((mx,p)=>Math.max(mx,...(p.notasPedido||[]).map(n=>n.npNum||0)),0);
-        _npCounter=Math.max(_npCounter, data._npCounter||0, _maxNpFs+1);
+        _npCounter=Math.max(_npCounter, _maxNpFs+1);
         if(data._proveedores && Array.isArray(data._proveedores)) _proveedores = data._proveedores;
         // sanear referencias
         if(!projects.find(p=>p.id===activeProjectId)) activeProjectId=projects[0].id;
@@ -6049,6 +6049,7 @@ async function loadFromFirestore(){
     }
     // arrancar la app — habilitar sync ANTES de llamar setActiveProject
     _loadingData=false;
+    saveToFirestore(); // persiste contadores recalculados inmediatamente
     setActiveProject(activeProjectId);
     renderProjPanel();
     renderDashboard(); // actualizar dashboard con datos reales
