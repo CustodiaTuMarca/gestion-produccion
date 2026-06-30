@@ -2092,6 +2092,14 @@ function _normalizeRunOrder(machine){
   all.sort((a,b)=>(a.order??0)-(b.order??0));
   all.forEach((r,i)=>{r.order=(i+1)*10;});
 }
+// Normaliza orders de todas las máquinas — se llama al cargar datos de Firebase.
+function _normalizeAllRunOrders(){
+  const machines=new Set();
+  projects.forEach(proj=>{
+    proj.components.forEach(comp=>{if(comp.machine) machines.add(comp.machine);});
+  });
+  machines.forEach(m=>_normalizeRunOrder(m));
+}
 
 function doAddRun(){
   const compId=+document.getElementById('run-comp').value;
@@ -6103,6 +6111,8 @@ async function loadFromFirestore(){
         if(!ganttSelectedIds.length) ganttSelectedIds=[projects[0].id];
         // Limpiar deps rotas en todos los proyectos
         projects.forEach(p=>cleanBrokenDeps(p));
+        // Normalizar orders de runs (corrige fracciones de datos anteriores)
+        _normalizeAllRunOrders();
       }
     }
     // arrancar la app — habilitar sync ANTES de llamar setActiveProject
