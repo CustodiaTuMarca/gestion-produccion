@@ -2871,64 +2871,63 @@ function computeGanttBlocks(projList){
 
   Object.keys(byMaq).forEach(maq=>{
     const items=byMaq[maq];
-    // Ordenar por run.order
     items.sort((a,b)=>(a.run.order??99999)-(b.run.order??99999));
 
     let machEnd={date:today,min:0};
-    const minUsados={}; // fecha -> minutos usados ese dia
+    const minUsados={}; // date -> minutes used that day on this machine
 
     items.forEach(({run,comp,proj})=>{
       const durMins=Math.max(1,(comp.mins||0)*(run.qty||1));
       const df=depsFloor(comp,proj);
 
-      // start base = max(deps, machEnd)
-      let start=cmpTime(df,machEnd)>0?{...df}:{...machEnd};
+      // Fecha de inicio: max(deps.date, machEnd.date)
+      let startDate=cmpTime(df,machEnd)>0 ? df.date : machEnd.date;
 
-      // si fecha fija: respetar pero no antes de deps
+      // si fecha fija: respetar si es >= deps, sino usar deps
       if(run.fechaFija){
-        const fd={date:dateStr(skipToWorkingDay(
-          new Date(run.fecha||today))),min:0};
-        if(cmpTime(fd,df)>=0) start={...fd};
-        else start={...df};
+        const fd=dateStr(skipToWorkingDay(new Date(run.fecha||today)));
+        startDate=cmpTime({date:fd,min:0},df)>=0 ? fd : df.date;
       }
 
-      // asegurar dia habil
-      if(isNonWorkingDay(new Date(start.date))){
-        start={date:dateStr(skipToWorkingDay(
-          new Date(start.date))),min:0};
-      }
+      if(isNonWorkingDay(new Date(startDate)))
+        startDate=dateStr(skipToWorkingDay(new Date(startDate)));
 
-      // CAPACIDAD DIARIA: 480 min por dia por maquina
-      if(durMins<=480){
-        const usado=minUsados[start.date]||0;
-        const disponible=480-usado;
-        if(disponible<=0){
-          // dia lleno, pasar al siguiente
-          start={date:dateStr(nextWorkingDay(
-            new Date(start.date))),min:0};
-          minUsados[start.date]=minUsados[start.date]||0;
-        }
-        // si no cabe en el resto del dia actual
-        if(durMins>(480-(minUsados[start.date]||0))
-           && (minUsados[start.date]||0)>0){
-          start={date:dateStr(nextWorkingDay(
-            new Date(start.date))),min:0};
-        }
-        start.min=minUsados[start.date]||0;
-        minUsados[start.date]=(minUsados[start.date]||0)+durMins;
+      // Sincronizar minUsados con el uso real hasta machEnd y df
+      // para no empezar antes de que terminen corridas o dependencias
+      if(machEnd.date===startDate)
+        minUsados[startDate]=Math.max(minUsados[startDate]||0, machEnd.min);
+      if(df.date===startDate)
+        minUsados[startDate]=Math.max(minUsados[startDate]||0, df.min);
+
+      let startMin;
+      if(durMins>480){
+        // run multi-dia: ocupa el dia completo desde el inicio
+        startMin=0;
+        minUsados[startDate]=480;
       } else {
-        // run de mas de un dia: empieza al inicio del dia
-        start.min=0;
-        minUsados[start.date]=480; // ocupa el dia completo
+        // buscar primer dia habil donde el run quepa sin exceder 480 min
+        for(let guard=0;guard<366;guard++){
+          const usado=minUsados[startDate]||0;
+          if(durMins<=480-usado) break;
+          startDate=dateStr(nextWorkingDay(new Date(startDate)));
+        }
+        const usado=minUsados[startDate]||0;
+        startMin=usado;
+        minUsados[startDate]=usado+durMins;
       }
 
-      const res=addWorkingMins(start.date,start.min,durMins);
+      const start={date:startDate,min:startMin};
+      const res=addWorkingMins(startDate,startMin,durMins);
       const end={date:res.date,min:res.minInDay};
+
+      // Reflejar en minUsados el minuto final del run (necesario para
+      // runs multi-dia cuyo end.date != startDate)
+      minUsados[end.date]=Math.max(minUsados[end.date]||0, end.min);
 
       blocks.push({
         compId:comp.id,runId:run.id,projId:proj.id,
         projName:proj.name,machine:maq,
-        start:{...start},end,durMins,
+        start,end,durMins,
         qty:run.qty||1,nota:run.nota||'',
         fechaFija:!!run.fechaFija,order:run.order
       });
