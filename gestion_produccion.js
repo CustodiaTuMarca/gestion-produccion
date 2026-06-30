@@ -2079,6 +2079,20 @@ function deleteRun(compId,runId){
   scheduleSync();
 }
 
+// Renumera TODOS los runs de una máquina con valores 10, 20, 30… para evitar
+// fracciones flotantes acumuladas por inserciones repetidas con bisección.
+function _normalizeRunOrder(machine){
+  const all=[];
+  projects.forEach(proj=>{
+    proj.components.forEach(comp=>{
+      if(comp.machine!==machine)return;
+      (comp.runs||[]).forEach(r=>all.push(r));
+    });
+  });
+  all.sort((a,b)=>(a.order??0)-(b.order??0));
+  all.forEach((r,i)=>{r.order=(i+1)*10;});
+}
+
 function doAddRun(){
   const compId=+document.getElementById('run-comp').value;
   const nota=document.getElementById('run-nota').value.trim();
@@ -2260,7 +2274,8 @@ function doAddRun(){
 
   const run={id:++_runId,fecha,qty,nota,fechaFija,order:newOrder};
   c.runs.push(run);
-  // NO reordenar por fecha — el order es lo que manda
+  // Renumerar toda la máquina para evitar fracciones acumuladas por bisección
+  _normalizeRunOrder(c.machine);
 
   const modeLabel={'cola':'cola','fecha_fija':'fecha fija','despues':'después de ref','antes':'antes de ref'}[_runMode];
   addLog('carga',
@@ -2852,7 +2867,17 @@ function computeGanttBlocks(projList){
     }
     _topoOrder.push(key);
   }
-  Object.keys(allByComp).forEach(compId=>_topoVisit(compId));
+  // Ordenar nodos entrada por run.order mínimo: los componentes independientes
+  // en la misma máquina se visitan (y schedulearon) en el orden global de la cola.
+  // Las dependencias siempre tienen prioridad sobre el order (el DFS garantiza
+  // que un dep se agrega a _topoOrder antes que su dependiente).
+  Object.keys(allByComp)
+    .sort((a,b)=>{
+      const minA=Math.min(...(allByComp[a]||[]).map(i=>i.run.order??99999));
+      const minB=Math.min(...(allByComp[b]||[]).map(i=>i.run.order??99999));
+      return minA-minB;
+    })
+    .forEach(compId=>_topoVisit(compId));
 
   // Encadenamiento de runs del mismo comp standAlone (prev run → next run)
   const _compPrev={};
@@ -3663,6 +3688,8 @@ function saveEditRunModal(){
         .sort((a,b)=>(b.r.order??0)-(a.r.order??0))[0];
       run.order=ant?((ant.r.order??0)+refOrder)/2:refOrder-5;
     }
+    // Renumerar toda la máquina para evitar fracciones acumuladas
+    _normalizeRunOrder(comp.machine);
     run.fechaFija=false;
   }
 
