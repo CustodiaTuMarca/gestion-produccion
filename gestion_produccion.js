@@ -2807,163 +2807,135 @@ function computeGanttBlocks(projList){
     return floor; // NUNCA devuelve null
   }
 
-  // ── 2. Planificar standAlone primero (por comp, por proyecto) ──
-  // Agrupa por proj+comp para encadenar runs del mismo comp
-  const standByKey={};
-  allStand.forEach(item=>{
-    const k=`${item.proj.id}:${item.comp.id}`;
-    if(!standByKey[k]) standByKey[k]=[];
-    standByKey[k].push(item);
-  });
-  Object.values(standByKey).forEach(items=>{
-    items.sort((a,b)=>(a.run.order??99999)-(b.run.order??99999));
-    let prev=null;
-    items.forEach(({run,comp,proj},i)=>{
-      const dur=Math.max(1,(comp.dias||1)*MINS_PER_DAY);
-      const df=depsFloor(comp,proj)||{date:'1970-01-01',min:0};
-      // Inicio: respetar SIEMPRE la fecha del run (puede ser pasada)
-      // Solo para runs siguientes del mismo comp, encadenar desde el anterior
-      let start={date:dateStr(skipToWorkingDay(new Date(run.fecha||today))),min:0};
-      // Si hay deps que terminan después, respetar
-      if(cmpTime(df,start)>0) start={...df};
-      // Si hay un run anterior del mismo comp, encadenar
-      if(prev&&cmpTime(prev,start)>0) start={...prev};
-      start.date=dateStr(skipToWorkingDay(new Date(start.date)));
-      const res=addWorkingMins(start.date,start.min,dur);
-      const end={date:res.date,min:res.minInDay};
-      blocks.push({compId:comp.id,runId:run.id,projId:proj.id,projName:proj.name,
-        start:{...start},end,durMins:dur,machine:comp.machine,
-        qty:run.qty||1,nota:run.nota||'',fechaFija:!!run.fechaFija,order:run.order});
-      prev=end;
-      setCompEnd(proj.id,comp.id,end);
-    });
-  });
+  // ── 2+3. Planificar TODOS los componentes en orden topológico de dependencias ──
+  // StandAlone (Compra MP, Trabajos de Terceros) y série (Torno, Centro, etc.) se
+  // procesan juntos en un único sort topológico para que las deps entre cualquier
+  // combinación de procesos siempre se respeten.
+  // Regla: las deps siempre ganan, sin importar si el run es fijo o cola.
 
-  // ── 3. Planificar máquinas serie — TODOS los proyectos juntos ──
-  // Se procesan primero TODOS los fijos de TODAS las máquinas, luego los items
-  // de cola en orden topológico de dependencias para que una dep (ej. TO) siempre
-  // quede planificada antes que su dependiente (ej. CE), sin importar el orden
-  // en que aparezcan las máquinas en el objeto byMaq.
-  const byMaq={};
-  allSerie.forEach(item=>{
-    const m=item.comp.machine;
-    if(!byMaq[m]) byMaq[m]=[];
-    byMaq[m].push(item);
-  });
-
-  // Cursor y bloques fijos por máquina
+  // Cursor y bloques fijos por máquina série
   const machCursor={};
   const machFijoBlocks={};
-  Object.keys(byMaq).forEach(m=>{
-    machCursor[m]={date:today,min:0};
-    machFijoBlocks[m]=[];
+  allSerie.forEach(item=>{
+    const m=item.comp.machine;
+    if(!machCursor[m]){machCursor[m]={date:today,min:0};machFijoBlocks[m]=[];}
   });
 
-  // Paso A: planificar TODOS los fijos de TODAS las máquinas primero
-  Object.keys(byMaq).forEach(maq=>{
-    const fijos=byMaq[maq].filter(x=>x.run.fechaFija)
-                           .sort((a,b)=>(a.run.fecha||'').localeCompare(b.run.fecha||''));
-    fijos.forEach(item=>{
-      const{run,comp,proj}=item;
-      const qty=run.qty||1;
-      const dur=Math.max(1,(comp.mins||0)*qty);
-      const start={date:dateStr(skipToWorkingDay(new Date(run.fecha))),min:0};
-      const res=addWorkingMins(start.date,start.min,dur);
-      const end={date:res.date,min:res.minInDay};
-      blocks.push({compId:comp.id,runId:run.id,projId:proj.id,projName:proj.name,
-        start:{...start},end,durMins:dur,machine:maq,
-        qty,nota:run.nota||'',fechaFija:true,order:run.order});
-      machFijoBlocks[maq].push({start:{...start},end:{...end}});
-      if(cmpTime(end,machCursor[maq])>0) machCursor[maq]={...end};
-      setCompEnd(proj.id,comp.id,end);
-    });
-  });
-
-  // Paso B: recopilar todos los items de cola y ordenarlos topológicamente
-  // Runs del mismo componente se agrupan juntos para encadenarse
-  const allCola=[];
-  Object.keys(byMaq).forEach(maq=>{
-    byMaq[maq].filter(x=>!x.run.fechaFija).forEach(item=>allCola.push(item));
-  });
-
-  const colaByComp={};
-  allCola.forEach(item=>{
+  // Agrupar TODOS los runs (standAlone + série, fijo + cola) por componente
+  const allByComp={};
+  [...allStand,...allSerie].forEach(item=>{
     const k=item.comp.id;
-    if(!colaByComp[k]) colaByComp[k]=[];
-    colaByComp[k].push(item);
+    if(!allByComp[k]) allByComp[k]=[];
+    allByComp[k].push(item);
   });
-  Object.values(colaByComp).forEach(arr=>{
+  Object.values(allByComp).forEach(arr=>{
     arr.sort((a,b)=>(a.run.order??99999)-(b.run.order??99999));
   });
 
-  // Sort topológico: visitar deps antes que dependientes (DFS)
+  // Sort topológico: deps visitadas antes que dependientes
+  // Normaliza compId a String para evitar type mismatch number/string en el Set
   const _tv=new Set();
   const _topoOrder=[];
   function _topoVisit(compId){
-    if(_tv.has(compId)) return;
-    _tv.add(compId);
-    const items=colaByComp[compId];
+    const key=String(compId);
+    if(_tv.has(key)) return;
+    _tv.add(key);
+    const items=allByComp[compId];
     if(!items||!items.length) return;
     const comp=items[0].comp;
     for(const depId of(comp.deps||[])){
-      // Visitar la dep primero si tiene runs de cola pendientes
-      if(colaByComp[depId]) _topoVisit(depId);
+      _topoVisit(depId); // normaliza internamente — nunca procesa dos veces el mismo comp
     }
-    _topoOrder.push(compId);
+    _topoOrder.push(key);
   }
-  Object.keys(colaByComp).forEach(compId=>_topoVisit(compId));
+  Object.keys(allByComp).forEach(compId=>_topoVisit(compId));
 
-  // Paso C: planificar cola en orden topológico, manteniendo cursor por máquina
+  // Encadenamiento de runs del mismo comp standAlone (prev run → next run)
+  const _compPrev={};
+
+  // Planificar cada componente en orden topológico
   _topoOrder.forEach(compId=>{
-    const items=colaByComp[compId];
+    const items=allByComp[compId];
+    if(!items||!items.length) return;
+    const esStand=!isMaquinaSerie(items[0].comp.machine);
+
     items.forEach(item=>{
       const{run,comp,proj}=item;
       const maq=comp.machine;
-      const cursor=machCursor[maq];
-      const fijoBlocks=machFijoBlocks[maq]||[];
       const qty=run.qty||1;
-      const dur=Math.max(1,(comp.mins||0)*qty);
 
-      // Piso por dependencias — ahora compEnd ya tiene las deps (procesadas antes en topo order)
-      const df=depsFloor(comp,proj)||{date:today,min:0};
+      // Piso de dependencias — siempre se respeta, fijo o cola, stand o série
+      const df=depsFloor(comp,proj)||{date:'1970-01-01',min:0};
 
-      // Inicio = max(cursor de la máquina, depsFloor)
-      let start=cmpTime(df,cursor)>0?{...df}:{...cursor};
-      if(isNonWorkingDay(new Date(start.date))){
-        start={date:dateStr(skipToWorkingDay(new Date(start.date))),min:0};
-      }
-      if(start.min>=MINS_PER_DAY){
-        start={date:dateStr(nextWorkingDay(new Date(start.date))),min:0};
-      }
+      let start,end,durMins;
 
-      let res=addWorkingMins(start.date,start.min,dur);
-      let end={date:res.date,min:res.minInDay};
+      if(esStand){
+        // StandAlone: duración en días, respeta run.fecha como mínimo y encadena runs
+        durMins=Math.max(1,(comp.dias||1)*MINS_PER_DAY);
+        start={date:dateStr(skipToWorkingDay(new Date(run.fecha||today))),min:0};
+        if(cmpTime(df,start)>0) start={...df};
+        const prev=_compPrev[compId];
+        if(prev&&cmpTime(prev,start)>0) start={...prev};
+        start.date=dateStr(skipToWorkingDay(new Date(start.date)));
+        const res=addWorkingMins(start.date,start.min,durMins);
+        end={date:res.date,min:res.minInDay};
+        _compPrev[compId]=end;
 
-      // Verificar superposición con fijos de esta máquina
-      let moved=true;
-      let safetyFijo=0;
-      while(moved&&safetyFijo++<20){
-        moved=false;
-        for(const fb of fijoBlocks){
-          if(cmpTime(start,fb.end)<0&&cmpTime(end,fb.start)>0){
-            start={...fb.end};
-            if(isNonWorkingDay(new Date(start.date)))
-              start={date:dateStr(skipToWorkingDay(new Date(start.date))),min:0};
-            if(start.min>=MINS_PER_DAY)
-              start={date:dateStr(nextWorkingDay(new Date(start.date))),min:0};
-            res=addWorkingMins(start.date,start.min,dur);
-            end={date:res.date,min:res.minInDay};
-            moved=true;
-            break;
+      } else {
+        // Série: duración en minutos × cantidad
+        durMins=Math.max(1,(comp.mins||0)*qty);
+        const fijoBlocks=machFijoBlocks[maq]||[];
+
+        if(run.fechaFija){
+          // Fijo: run.fecha es el mínimo — las deps pueden empujarlo más tarde
+          const fixedStart={date:dateStr(skipToWorkingDay(new Date(run.fecha))),min:0};
+          start=cmpTime(df,fixedStart)>0?{...df}:{...fixedStart};
+        } else {
+          // Cola: max(deps, cursor de la máquina)
+          const cursor=machCursor[maq];
+          start=cmpTime(df,cursor)>0?{...df}:{...cursor};
+        }
+
+        if(isNonWorkingDay(new Date(start.date))){
+          start={date:dateStr(skipToWorkingDay(new Date(start.date))),min:0};
+        }
+        if(start.min>=MINS_PER_DAY){
+          start={date:dateStr(nextWorkingDay(new Date(start.date))),min:0};
+        }
+
+        let res=addWorkingMins(start.date,start.min,durMins);
+        end={date:res.date,min:res.minInDay};
+
+        // Anti-superposición con fijos de esta máquina
+        let moved=true,safetyFijo=0;
+        while(moved&&safetyFijo++<20){
+          moved=false;
+          for(const fb of fijoBlocks){
+            if(cmpTime(start,fb.end)<0&&cmpTime(end,fb.start)>0){
+              start={...fb.end};
+              if(isNonWorkingDay(new Date(start.date)))
+                start={date:dateStr(skipToWorkingDay(new Date(start.date))),min:0};
+              if(start.min>=MINS_PER_DAY)
+                start={date:dateStr(nextWorkingDay(new Date(start.date))),min:0};
+              res=addWorkingMins(start.date,start.min,durMins);
+              end={date:res.date,min:res.minInDay};
+              moved=true;break;
+            }
           }
+        }
+
+        if(run.fechaFija){
+          // Registrar el bloque fijo en su posición real (ya con deps aplicadas)
+          machFijoBlocks[maq].push({start:{...start},end:{...end}});
+          if(cmpTime(end,machCursor[maq])>0) machCursor[maq]={...end};
+        } else {
+          machCursor[maq]={...end};
         }
       }
 
       blocks.push({compId:comp.id,runId:run.id,projId:proj.id,projName:proj.name,
-        start:{...start},end,durMins:dur,machine:maq,
-        qty,nota:run.nota||'',fechaFija:false,order:run.order});
-
-      machCursor[maq]={...end};
+        start:{...start},end,durMins,machine:maq,
+        qty,nota:run.nota||'',fechaFija:!!run.fechaFija,order:run.order});
       setCompEnd(proj.id,comp.id,end);
     });
   });
