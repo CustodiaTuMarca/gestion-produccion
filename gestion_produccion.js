@@ -492,6 +492,10 @@ function addWorkingMins(startDateStr, startMinInDay, totalMins){
     if(minLeft<=avail){minInDay+=minLeft;minLeft=0;}
     else{minLeft-=avail;d=nextWorkingDay(d);minInDay=0;}
   }
+  // Si el bloque terminó exactamente al final de jornada, avanzar al
+  // día siguiente para que la barra del Gantt ocupe el día completo
+  // (pct usa solo la fecha, no los minutos).
+  if(minInDay>=MINS_PER_DAY){d=nextWorkingDay(d);minInDay=0;}
   return{date:dateStr(d),minInDay};
 }
 
