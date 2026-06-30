@@ -2884,7 +2884,11 @@ function computeGanttBlocks(projList){
       } else {
         // Série: duración en minutos × cantidad
         durMins=Math.max(1,(comp.mins||0)*qty);
-        const fijoBlocks=machFijoBlocks[maq]||[];
+        // Inicialización lazy: la máquina puede no haber aparecido en allSerie
+        // (ej. todos sus runs estaban fabricados y llegó sólo como dep en el sort topológico)
+        if(!machCursor[maq]) machCursor[maq]={date:today,min:0};
+        if(!machFijoBlocks[maq]) machFijoBlocks[maq]=[];
+        const fijoBlocks=machFijoBlocks[maq];
 
         if(run.fechaFija){
           // Fijo: run.fecha es el mínimo — las deps pueden empujarlo más tarde
