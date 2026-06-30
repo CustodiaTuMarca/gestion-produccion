@@ -2941,6 +2941,17 @@ function computeGanttBlocks(projList){
         }
       }
 
+      // DEBUG TEMP — remover después del diagnóstico
+      if((comp.name||'').toUpperCase().includes('PISTON')){
+        console.log('[GANTT-DEBUG scheduler]',{
+          comp:comp.name, machine:comp.machine,
+          'comp.mins':comp.mins, 'run.qty':run.qty, qty,
+          durMins,
+          start_date:start.date, start_min:start.min,
+          end_date:end.date, end_min:end.min,
+          fechaFija:run.fechaFija
+        });
+      }
       blocks.push({compId:comp.id,runId:run.id,projId:proj.id,projName:proj.name,
         start:{...start},end,durMins,machine:maq,
         qty,nota:run.nota||'',fechaFija:!!run.fechaFija,order:run.order});
@@ -3282,6 +3293,17 @@ function renderGantt(){
       const ocInfo=b.projIsOC&&b.oc?`OC ${b.oc.numero||'s/n'} · `:'';
       const projBadge=isMulti?`[${b.proj?.name||''}] `:'';
       const tooltip=`${projBadge}${ocInfo}${subName} → ${b.comp?.name||'?'} | ${fmtDate(b.start.date)} → ${fmtDate(b.end.date)} | ×${b.qty} | ${fmtDur(b.durMins)}${b.fechaFija?' | 📅 FECHA FIJA':''}${b.nota?' | '+b.nota:''}`;
+      // DEBUG TEMP — remover después del diagnóstico
+      if((b.comp?.name||'').toUpperCase().includes('PISTON')){
+        console.log('[GANTT-DEBUG renderer]',{
+          comp:b.comp?.name, durMins:b.durMins,
+          start_date:b.start.date, start_min:b.start.min,
+          end_date:b.end.date, end_min:b.end.min,
+          inWin, l, r2, w, totalDays,
+          winStart:winStart.toISOString().slice(0,10),
+          winEnd:winEnd.toISOString().slice(0,10)
+        });
+      }
       const projColor=isMulti?PROJ_COLORS[projects.indexOf(b.proj)%PROJ_COLORS.length]:col;
       const dotColor=isMulti?projColor:col;
 
