@@ -2859,58 +2859,89 @@ function computeGanttBlocks(projList){
     });
   });
 
-  // ── GRUPO A: máquinas serie, procesadas por máquina ──
+  // ── GRUPO A: máquinas serie, procesadas por máquina, con múltiples pasadas ──
+  // Las máquinas de Grupo A pueden depender entre sí (p.ej. Centro depende de
+  // Torno). Como se procesan máquina por máquina, en una sola pasada la
+  // máquina que se procesa primero no ve el compEnd de una máquina que
+  // todavía no fue procesada, y depsFloor cae en la estimación ingenua
+  // (ignora la cola real de esa máquina). Para resolverlo, se recalculan
+  // TODOS los runs de Grupo A repetidas veces: cada pasada usa los compEnd
+  // más recientes (incluso los de la pasada anterior), hasta que el
+  // resultado no cambie o se llegue al máximo de pasadas.
   const byMaq={};
   grupoA.forEach(item=>{
     const m=item.comp.machine;
     if(!byMaq[m]) byMaq[m]=[];
     byMaq[m].push(item);
   });
-
-  Object.keys(byMaq).forEach(maq=>{
-    const items=byMaq[maq];
+  Object.values(byMaq).forEach(items=>{
     items.sort((a,b)=>(a.run.order??99999)-(b.run.order??99999));
-
-    let machineEnd={date:today,min:0};
-    const diaOcupado={}; // date -> cantidad de runs que empiezan/terminan ese día
-
-    items.forEach(({run,comp,proj})=>{
-      const df=depsFloor(comp,proj);
-
-      let start;
-      if(run.fechaFija){
-        const fd=dateStr(skipToWorkingDay(new Date(run.fecha||today)));
-        start=maxTime(maxTime({date:fd,min:0},df),machineEnd);
-      } else {
-        start=maxTime(df,machineEnd);
-      }
-      let startDate=dateStr(skipToWorkingDay(new Date(start.date)));
-
-      // Máximo 2 runs por día calendario en esta máquina
-      while((diaOcupado[startDate]||0)>=2){
-        startDate=dateStr(nextWorkingDay(new Date(startDate)));
-      }
-
-      const durMins=Math.max(1,(comp.mins||0)*(run.qty||1));
-      const res=addWorkingMins(startDate,0,durMins);
-      const end={date:res.date,min:res.minInDay};
-
-      diaOcupado[startDate]=(diaOcupado[startDate]||0)+1;
-      if(end.date!==startDate)
-        diaOcupado[end.date]=(diaOcupado[end.date]||0)+1;
-
-      blocks.push({
-        compId:comp.id,runId:run.id,projId:proj.id,
-        projName:proj.name,machine:maq,
-        start:{date:startDate,min:0},end,durMins,
-        qty:run.qty||1,nota:run.nota||'',
-        fechaFija:!!run.fechaFija,order:run.order
-      });
-
-      machineEnd=end;
-      setEnd(proj.id,comp.id,end);
-    });
   });
+
+  const MAX_PASADAS=5;
+  let grupoABlocks=[];
+  let snapshotAnterior=null;
+
+  for(let pasada=0;pasada<MAX_PASADAS;pasada++){
+    grupoABlocks=[];
+
+    Object.keys(byMaq).forEach(maq=>{
+      const items=byMaq[maq];
+      let machineEnd={date:today,min:0};
+      const diaOcupado={}; // date -> cantidad de runs que empiezan/terminan ese día
+
+      items.forEach(({run,comp,proj})=>{
+        const df=depsFloor(comp,proj);
+
+        let start;
+        if(run.fechaFija){
+          const fd=dateStr(skipToWorkingDay(new Date(run.fecha||today)));
+          start=maxTime(maxTime({date:fd,min:0},df),machineEnd);
+        } else {
+          start=maxTime(df,machineEnd);
+        }
+        let startDate=dateStr(skipToWorkingDay(new Date(start.date)));
+
+        // Máximo 2 runs por día calendario en esta máquina
+        while((diaOcupado[startDate]||0)>=2){
+          startDate=dateStr(nextWorkingDay(new Date(startDate)));
+        }
+
+        const durMins=Math.max(1,(comp.mins||0)*(run.qty||1));
+        const res=addWorkingMins(startDate,0,durMins);
+        const end={date:res.date,min:res.minInDay};
+
+        diaOcupado[startDate]=(diaOcupado[startDate]||0)+1;
+        if(end.date!==startDate)
+          diaOcupado[end.date]=(diaOcupado[end.date]||0)+1;
+
+        grupoABlocks.push({
+          compId:comp.id,runId:run.id,projId:proj.id,
+          projName:proj.name,machine:maq,
+          start:{date:startDate,min:0},end,durMins,
+          qty:run.qty||1,nota:run.nota||'',
+          fechaFija:!!run.fechaFija,order:run.order
+        });
+
+        machineEnd=end;
+        // Sobreescribir (no combinar con max): esta pasada reemplaza por
+        // completo el resultado de la pasada anterior para este componente,
+        // así una pasada posterior puede corregir una estimación de más
+        // alto que resultó errónea.
+        if(!compEnd[proj.id]) compEnd[proj.id]={};
+        compEnd[proj.id][comp.id]={...end};
+      });
+    });
+
+    const snapshotActual=grupoABlocks
+      .map(b=>`${b.projId}:${b.compId}:${b.runId}:${b.start.date}:${b.end.date}:${b.end.min}`)
+      .join('|');
+    const convergio=snapshotActual===snapshotAnterior;
+    snapshotAnterior=snapshotActual;
+    if(convergio) break;
+  }
+
+  blocks.push(...grupoABlocks);
 
   return {blocks};
 }
