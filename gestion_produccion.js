@@ -2776,94 +2776,92 @@ function computeGanttBlocks(projList){
     if(!cur||cmpTime(pos,cur)>0) compEnd[pid][cid]={...pos};
   }
 
-  // Separar runs en standAlone y serie
-  const standAlone=[], serie=[];
-  const STAND_MAQUINAS=['Compra MP','Trabajos de Terceros',
-    'Provision MP cliente'];
-  const SERIE_MAQUINAS=['Corte','Torno','Centro','Soldadura',
-    'Ensamble','Roscado'];
+  // GRUPO A: máquinas serie — un solo run a la vez, disponibilidad lineal única.
+  // Cualquier máquina/proceso no listado acá cae en GRUPO B (externos, sin cola propia).
+  const GRUPO_A=['Corte','Torno','Centro','Roscado','Soldadura','Ensamble'];
+  function esGrupoA(machine){ return GRUPO_A.includes(machine); }
 
+  // Recopilar runs pendientes de todos los proyectos, separados por grupo
+  const grupoA=[], grupoB=[];
   projList.forEach(proj=>{
     proj.components.forEach(comp=>{
       (comp.runs||[])
         .filter(r=>(r.fabricado||0)<(r.qty||1))
         .forEach(run=>{
           const item={run,comp,proj,projId:proj.id};
-          if(STAND_MAQUINAS.includes(comp.machine))
-            standAlone.push(item);
-          else if(SERIE_MAQUINAS.includes(comp.machine))
-            serie.push(item);
+          if(esGrupoA(comp.machine)) grupoA.push(item);
+          else grupoB.push(item);
         });
     });
   });
 
-  // depsFloor: fecha minima por dependencias
+  // depsFloor: fecha más tardía entre el fin de todas las dependencias
+  // del componente. Se busca solo dentro del mismo proyecto: los deps
+  // se arman en la UI contra componentes del propio proyecto y los IDs
+  // de componente no son únicos entre proyectos, así que buscar cruzado
+  // podría emparejar por error componentes de proyectos distintos.
+  // Si no hay deps o no hay datos para estimarlas, el piso es "hoy"
+  // (nunca null, nunca bloquea el run).
   function depsFloor(comp,proj){
-    let floor={date:'1970-01-01',min:0};
+    let floor=null;
     for(const depId of (comp.deps||[])){
       const de=getEnd(proj.id,depId);
       if(de){
-        if(cmpTime(de,floor)>0) floor={...de};
+        if(!floor||cmpTime(de,floor)>0) floor={...de};
       } else {
-        // estimar desde runs de la dep
+        // no calculada todavía: estimarla a partir de los runs propios de la dep
         const depComp=proj.components.find(c=>c.id===depId);
         if(!depComp) continue;
         const depRuns=(depComp.runs||[])
           .filter(r=>(r.fabricado||0)<(r.qty||1));
         if(!depRuns.length) continue;
         depRuns.forEach(r=>{
-          const isStand=STAND_MAQUINAS.includes(depComp.machine);
-          const dur=isStand
-            ?Math.max(1,(depComp.dias||1)*480)
-            :Math.max(1,(depComp.mins||0)*(r.qty||1));
-          const res=addWorkingMins(
-            dateStr(skipToWorkingDay(new Date(r.fecha||today))),
-            0,dur);
+          const dur=esGrupoA(depComp.machine)
+            ?Math.max(1,(depComp.mins||0)*(r.qty||1))
+            :Math.max(1,(depComp.dias||1)*480);
+          const startD=dateStr(skipToWorkingDay(new Date(r.fecha||today)));
+          const res=addWorkingMins(startD,0,dur);
           const est={date:res.date,min:res.minInDay};
-          if(cmpTime(est,floor)>0) floor={...est};
+          if(!floor||cmpTime(est,floor)>0) floor={...est};
         });
       }
     }
-    return floor;
+    return floor||{date:today,min:0};
   }
 
-  // PASO A: procesar standAlone
-  const standByKey={};
-  standAlone.forEach(item=>{
+  // ── GRUPO B: procesos externos — sin disponibilidad lineal, pueden superponerse ──
+  const grupoBByKey={};
+  grupoB.forEach(item=>{
     const k=`${item.proj.id}:${item.comp.id}`;
-    if(!standByKey[k]) standByKey[k]=[];
-    standByKey[k].push(item);
+    if(!grupoBByKey[k]) grupoBByKey[k]=[];
+    grupoBByKey[k].push(item);
   });
-  Object.values(standByKey).forEach(items=>{
+  Object.values(grupoBByKey).forEach(items=>{
     items.sort((a,b)=>(a.run.order??99999)-(b.run.order??99999));
-    let prev=null;
     items.forEach(({run,comp,proj})=>{
-      const dur=Math.max(1,(comp.dias||1)*480);
       const df=depsFloor(comp,proj);
-      let startDate=dateStr(skipToWorkingDay(
-        new Date(run.fecha||today)));
-      if(cmpTime(df,{date:startDate,min:0})>0)
-        startDate=df.date;
-      if(prev&&cmpTime(prev,{date:startDate,min:0})>0)
-        startDate=prev.date;
-      startDate=dateStr(skipToWorkingDay(new Date(startDate)));
-      const res=addWorkingMins(startDate,0,dur);
+      const fechaRun=dateStr(skipToWorkingDay(new Date(run.fecha||today)));
+      const start=maxTime({date:fechaRun,min:0},df);
+      const startDate=start.date;
+      const durMins=Math.max(1,(comp.dias||1)*480);
+      const res=addWorkingMins(startDate,0,durMins);
       const end={date:res.date,min:res.minInDay};
+
       blocks.push({
         compId:comp.id,runId:run.id,projId:proj.id,
         projName:proj.name,machine:comp.machine,
-        start:{date:startDate,min:0},end,durMins:dur,
+        start:{date:startDate,min:0},end,durMins,
         qty:run.qty||1,nota:run.nota||'',
         fechaFija:!!run.fechaFija,order:run.order
       });
-      prev=end;
+
       setEnd(proj.id,comp.id,end);
     });
   });
 
-  // PASO B: procesar serie por maquina
+  // ── GRUPO A: máquinas serie, procesadas por máquina ──
   const byMaq={};
-  serie.forEach(item=>{
+  grupoA.forEach(item=>{
     const m=item.comp.machine;
     if(!byMaq[m]) byMaq[m]=[];
     byMaq[m].push(item);
@@ -2873,66 +2871,43 @@ function computeGanttBlocks(projList){
     const items=byMaq[maq];
     items.sort((a,b)=>(a.run.order??99999)-(b.run.order??99999));
 
-    let machEnd={date:today,min:0};
-    const minUsados={}; // date -> minutes used that day on this machine
+    let machineEnd={date:today,min:0};
+    const diaOcupado={}; // date -> cantidad de runs que empiezan/terminan ese día
 
     items.forEach(({run,comp,proj})=>{
-      const durMins=Math.max(1,(comp.mins||0)*(run.qty||1));
       const df=depsFloor(comp,proj);
 
-      // Fecha de inicio: max(deps.date, machEnd.date)
-      let startDate=cmpTime(df,machEnd)>0 ? df.date : machEnd.date;
-
-      // si fecha fija: respetar si es >= deps, sino usar deps
+      let start;
       if(run.fechaFija){
         const fd=dateStr(skipToWorkingDay(new Date(run.fecha||today)));
-        startDate=cmpTime({date:fd,min:0},df)>=0 ? fd : df.date;
-      }
-
-      if(isNonWorkingDay(new Date(startDate)))
-        startDate=dateStr(skipToWorkingDay(new Date(startDate)));
-
-      // Sincronizar minUsados con el uso real hasta machEnd y df
-      // para no empezar antes de que terminen corridas o dependencias
-      if(machEnd.date===startDate)
-        minUsados[startDate]=Math.max(minUsados[startDate]||0, machEnd.min);
-      if(df.date===startDate)
-        minUsados[startDate]=Math.max(minUsados[startDate]||0, df.min);
-
-      let startMin;
-      if(durMins>480){
-        // run multi-dia: ocupa el dia completo desde el inicio
-        startMin=0;
-        minUsados[startDate]=480;
+        start=maxTime(maxTime({date:fd,min:0},df),machineEnd);
       } else {
-        // buscar primer dia habil donde el run quepa sin exceder 480 min
-        for(let guard=0;guard<366;guard++){
-          const usado=minUsados[startDate]||0;
-          if(durMins<=480-usado) break;
-          startDate=dateStr(nextWorkingDay(new Date(startDate)));
-        }
-        const usado=minUsados[startDate]||0;
-        startMin=usado;
-        minUsados[startDate]=usado+durMins;
+        start=maxTime(df,machineEnd);
+      }
+      let startDate=dateStr(skipToWorkingDay(new Date(start.date)));
+
+      // Máximo 2 runs por día calendario en esta máquina
+      while((diaOcupado[startDate]||0)>=2){
+        startDate=dateStr(nextWorkingDay(new Date(startDate)));
       }
 
-      const start={date:startDate,min:startMin};
-      const res=addWorkingMins(startDate,startMin,durMins);
+      const durMins=Math.max(1,(comp.mins||0)*(run.qty||1));
+      const res=addWorkingMins(startDate,0,durMins);
       const end={date:res.date,min:res.minInDay};
 
-      // Reflejar en minUsados el minuto final del run (necesario para
-      // runs multi-dia cuyo end.date != startDate)
-      minUsados[end.date]=Math.max(minUsados[end.date]||0, end.min);
+      diaOcupado[startDate]=(diaOcupado[startDate]||0)+1;
+      if(end.date!==startDate)
+        diaOcupado[end.date]=(diaOcupado[end.date]||0)+1;
 
       blocks.push({
         compId:comp.id,runId:run.id,projId:proj.id,
         projName:proj.name,machine:maq,
-        start,end,durMins,
+        start:{date:startDate,min:0},end,durMins,
         qty:run.qty||1,nota:run.nota||'',
         fechaFija:!!run.fechaFija,order:run.order
       });
 
-      machEnd=end;
+      machineEnd=end;
       setEnd(proj.id,comp.id,end);
     });
   });
