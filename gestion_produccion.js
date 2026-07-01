@@ -2767,6 +2767,13 @@ function computeGanttBlocks(projList){
   const today = dateStr(skipToWorkingDay(new Date()));
   const blocks = [];
 
+  // ── DEBUG TEMPORAL: diagnóstico CE LAM ACC 055 / TO LAM ACC 055 ──────
+  // TODO: remover este bloque y todos los console.log[DEBUG-DEPS] una vez
+  // resuelto el diagnóstico de dependencias entre máquinas de Grupo A.
+  const _DEBUG_NAMES=['CE LAM ACC 055','TO LAM ACC 055'];
+  function _isDebugTarget(comp){ return comp && _DEBUG_NAMES.includes((comp.name||'').trim()); }
+  let _debugPasada='GRUPO_B';
+
   // compEnd[projId][compId] = {date, min}
   const compEnd = {};
   function getEnd(pid,cid){ return compEnd[pid]?.[cid]||null; }
@@ -2803,9 +2810,18 @@ function computeGanttBlocks(projList){
   // Si no hay deps o no hay datos para estimarlas, el piso es "hoy"
   // (nunca null, nunca bloquea el run).
   function depsFloor(comp,proj){
+    const _dbg=_isDebugTarget(comp);
+    if(_dbg){
+      console.log(`[DEBUG-DEPS] pasada=${_debugPasada} depsFloor(${comp.name} id=${comp.id} proj=${proj.id}) — comp.deps=${JSON.stringify(comp.deps||[])}`);
+    }
     let floor=null;
     for(const depId of (comp.deps||[])){
       const de=getEnd(proj.id,depId);
+      if(_dbg){
+        const depComp=proj.components.find(c=>c.id===depId);
+        console.log(`[DEBUG-DEPS]   dep id=${depId} (${depComp?depComp.name:'?'}) → getEnd(proj=${proj.id})=`,
+          de?JSON.stringify(de):'NO ENCONTRADO (compEnd no seteado todavía)');
+      }
       if(de){
         if(!floor||cmpTime(de,floor)>0) floor={...de};
       } else {
@@ -2822,11 +2838,18 @@ function computeGanttBlocks(projList){
           const startD=dateStr(skipToWorkingDay(new Date(r.fecha||today)));
           const res=addWorkingMins(startD,0,dur);
           const est={date:res.date,min:res.minInDay};
+          if(_dbg){
+            console.log(`[DEBUG-DEPS]     estimación ingenua (ignora cola real de ${depComp.name}) desde run.fecha=${r.fecha||today} → est=${JSON.stringify(est)}`);
+          }
           if(!floor||cmpTime(est,floor)>0) floor={...est};
         });
       }
     }
-    return floor||{date:today,min:0};
+    const resultado=floor||{date:today,min:0};
+    if(_dbg){
+      console.log(`[DEBUG-DEPS] pasada=${_debugPasada} depsFloor(${comp.name}) → RESULTADO=${JSON.stringify(resultado)}`);
+    }
+    return resultado;
   }
 
   // ── GRUPO B: procesos externos — sin disponibilidad lineal, pueden superponerse ──
@@ -2884,6 +2907,8 @@ function computeGanttBlocks(projList){
 
   for(let pasada=0;pasada<MAX_PASADAS;pasada++){
     grupoABlocks=[];
+    _debugPasada=pasada+1;
+    console.log(`[DEBUG-DEPS] ── inicio pasada ${pasada+1} de Grupo A ──`);
 
     Object.keys(byMaq).forEach(maq=>{
       const items=byMaq[maq];
@@ -2915,6 +2940,12 @@ function computeGanttBlocks(projList){
         if(end.date!==startDate)
           diaOcupado[end.date]=(diaOcupado[end.date]||0)+1;
 
+        if(_isDebugTarget(comp)){
+          console.log(`[DEBUG-DEPS] pasada=${pasada+1} RUN ${comp.name} (${maq}) run.id=${run.id} proj=${proj.id}`
+            +` — df=${JSON.stringify(df)} machineEnd(antes)=${JSON.stringify(machineEnd)}`
+            +` fechaFija=${!!run.fechaFija} start(final)=${JSON.stringify({date:startDate,min:0})} end=${JSON.stringify(end)}`);
+        }
+
         grupoABlocks.push({
           compId:comp.id,runId:run.id,projId:proj.id,
           projName:proj.name,machine:maq,
@@ -2930,6 +2961,9 @@ function computeGanttBlocks(projList){
         // alto que resultó errónea.
         if(!compEnd[proj.id]) compEnd[proj.id]={};
         compEnd[proj.id][comp.id]={...end};
+        if(_isDebugTarget(comp)){
+          console.log(`[DEBUG-DEPS] pasada=${pasada+1} SET compEnd proj=${proj.id} comp=${comp.id} (${comp.name}) machine=${maq} → ${JSON.stringify(compEnd[proj.id][comp.id])}`);
+        }
       });
     });
 
