@@ -2767,11 +2767,6 @@ function computeGanttBlocks(projList){
   const today = dateStr(skipToWorkingDay(new Date()));
   const blocks = [];
 
-  // ── DEBUG TEMPORAL: diagnóstico general de deps en Grupo A ──────
-  // TODO: remover todos los console.log('[DEBUG]'...) una vez resuelto
-  // el diagnóstico de dependencias entre máquinas de Grupo A.
-  console.log('[DEBUG] projList:', projList.map(p=>p.name));
-
   // compEnd[projId][compId] = {date, min}
   const compEnd = {};
   function getEnd(pid,cid){ return compEnd[pid]?.[cid]||null; }
@@ -2799,8 +2794,6 @@ function computeGanttBlocks(projList){
         });
     });
   });
-
-  console.log('[DEBUG] total runs serie:', grupoA.length);
 
   // depsFloor: fecha más tardía entre el fin de todas las dependencias
   // del componente. Se busca solo dentro del mismo proyecto: los deps
@@ -2866,92 +2859,135 @@ function computeGanttBlocks(projList){
     });
   });
 
-  // ── GRUPO A: máquinas serie, procesadas por máquina, con múltiples pasadas ──
-  // Las máquinas de Grupo A pueden depender entre sí (p.ej. Centro depende de
-  // Torno). Como se procesan máquina por máquina, en una sola pasada la
-  // máquina que se procesa primero no ve el compEnd de una máquina que
-  // todavía no fue procesada, y depsFloor cae en la estimación ingenua
-  // (ignora la cola real de esa máquina). Para resolverlo, se recalculan
-  // TODOS los runs de Grupo A repetidas veces: cada pasada usa los compEnd
-  // más recientes (incluso los de la pasada anterior), hasta que el
-  // resultado no cambie o se llegue al máximo de pasadas.
-  const byMaq={};
-  grupoA.forEach(item=>{
-    const m=item.comp.machine;
-    if(!byMaq[m]) byMaq[m]=[];
-    byMaq[m].push(item);
-  });
-  Object.values(byMaq).forEach(items=>{
-    items.sort((a,b)=>(a.run.order??99999)-(b.run.order??99999));
-  });
+  // ── GRUPO A: máquinas serie, en orden topológico de dependencias ──
+  // Las máquinas de Grupo A pueden depender entre sí (p.ej. Centro depende
+  // de Torno). Si se procesaran agrupadas por máquina en orden arbitrario,
+  // la máquina que se procesa primero no ve el compEnd de una máquina que
+  // todavía no fue procesada, y depsFloor cae en una estimación ingenua que
+  // ignora la cola real de esa máquina. Para resolverlo, se ordenan los
+  // COMPONENTES (no las máquinas) topológicamente: un componente con deps
+  // siempre se procesa después de todos sus deps, sin importar en qué
+  // máquina esté cada uno. Dentro de un mismo nivel topológico (sin relación
+  // de dependencia entre sí) se respeta run.order. Los ciclos de deps se
+  // ignoran (se agregan igual, sin bloquear el resto).
+  //
+  // El cursor de cada máquina (machineEnd/diaOcupado) es independiente por
+  // máquina y se actualiza en el orden en que se van procesando los runs de
+  // esa máquina según el orden topológico global — así nunca se superponen
+  // runs de una misma máquina.
+  function topoOrdenGrupoA(items){
+    // nodo = "projId:compId" — clave única entre proyectos (evita colisión
+    // de IDs de componente entre proyectos distintos)
+    const nodos={};
+    items.forEach(({run,comp,proj})=>{
+      const key=`${proj.id}:${comp.id}`;
+      const order=run.order??99999;
+      if(!nodos[key]) nodos[key]={key,comp,proj,minOrder:order};
+      else if(order<nodos[key].minOrder) nodos[key].minOrder=order;
+    });
+    const keys=Object.keys(nodos);
+    const nodeSet=new Set(keys);
 
-  const MAX_PASADAS=5;
-  let grupoABlocks=[];
-  let snapshotAnterior=null;
-
-  for(let pasada=0;pasada<MAX_PASADAS;pasada++){
-    grupoABlocks=[];
-    console.log('[DEBUG] Pasada '+(pasada+1));
-
-    Object.keys(byMaq).forEach(maq=>{
-      const items=byMaq[maq];
-      let machineEnd={date:today,min:0};
-      const diaOcupado={}; // date -> cantidad de runs que empiezan/terminan ese día
-
-      items.forEach(({run,comp,proj})=>{
-        const df=depsFloor(comp,proj);
-
-        let start;
-        if(run.fechaFija){
-          const fd=dateStr(skipToWorkingDay(new Date(run.fecha||today)));
-          start=maxTime(maxTime({date:fd,min:0},df),machineEnd);
-        } else {
-          start=maxTime(df,machineEnd);
+    // adj[dep] = [nodos que dependen de dep] · inDegree[nodo] = cant. de deps propias
+    const adj={}, inDegree={};
+    keys.forEach(k=>{ adj[k]=[]; inDegree[k]=0; });
+    keys.forEach(k=>{
+      const {comp,proj}=nodos[k];
+      (comp.deps||[]).forEach(depId=>{
+        const depKey=`${proj.id}:${depId}`;
+        if(depKey!==k && nodeSet.has(depKey)){
+          adj[depKey].push(k);
+          inDegree[k]++;
         }
-        let startDate=dateStr(skipToWorkingDay(new Date(start.date)));
-
-        // Máximo 2 runs por día calendario en esta máquina
-        while((diaOcupado[startDate]||0)>=2){
-          startDate=dateStr(nextWorkingDay(new Date(startDate)));
-        }
-
-        const durMins=Math.max(1,(comp.mins||0)*(run.qty||1));
-        const res=addWorkingMins(startDate,0,durMins);
-        const end={date:res.date,min:res.minInDay};
-
-        diaOcupado[startDate]=(diaOcupado[startDate]||0)+1;
-        if(end.date!==startDate)
-          diaOcupado[end.date]=(diaOcupado[end.date]||0)+1;
-
-        console.log('[DEBUG]', comp.name, comp.machine, 'deps:', comp.deps, 'depsFloor:', df, 'start:', startDate, 'end:', end.date);
-
-        grupoABlocks.push({
-          compId:comp.id,runId:run.id,projId:proj.id,
-          projName:proj.name,machine:maq,
-          start:{date:startDate,min:0},end,durMins,
-          qty:run.qty||1,nota:run.nota||'',
-          fechaFija:!!run.fechaFija,order:run.order
-        });
-
-        machineEnd=end;
-        // Sobreescribir (no combinar con max): esta pasada reemplaza por
-        // completo el resultado de la pasada anterior para este componente,
-        // así una pasada posterior puede corregir una estimación de más
-        // alto que resultó errónea.
-        if(!compEnd[proj.id]) compEnd[proj.id]={};
-        compEnd[proj.id][comp.id]={...end};
       });
     });
 
-    const snapshotActual=grupoABlocks
-      .map(b=>`${b.projId}:${b.compId}:${b.runId}:${b.start.date}:${b.end.date}:${b.end.min}`)
-      .join('|');
-    const convergio=snapshotActual===snapshotAnterior;
-    snapshotAnterior=snapshotActual;
-    if(convergio) break;
+    // Kahn's algorithm: los nodos sin deps pendientes van primero;
+    // entre varios disponibles a la vez, se ordena por run.order (minOrder)
+    const orden=[];
+    const visitado=new Set();
+    let frontera=keys.filter(k=>inDegree[k]===0);
+    while(frontera.length){
+      frontera.sort((a,b)=>nodos[a].minOrder-nodos[b].minOrder);
+      const k=frontera.shift();
+      if(visitado.has(k)) continue;
+      visitado.add(k);
+      orden.push(k);
+      adj[k].forEach(dep=>{
+        inDegree[dep]--;
+        if(inDegree[dep]===0) frontera.push(dep);
+      });
+    }
+    // Ciclos: nodos que nunca llegaron a inDegree 0 — se agregan igual,
+    // ordenados por run.order, para no bloquear el resto del scheduler
+    keys.filter(k=>!visitado.has(k))
+      .sort((a,b)=>nodos[a].minOrder-nodos[b].minOrder)
+      .forEach(k=>orden.push(k));
+
+    return orden;
   }
 
-  blocks.push(...grupoABlocks);
+  const itemsPorNodo={};
+  grupoA.forEach(item=>{
+    const key=`${item.proj.id}:${item.comp.id}`;
+    if(!itemsPorNodo[key]) itemsPorNodo[key]=[];
+    itemsPorNodo[key].push(item);
+  });
+  Object.values(itemsPorNodo).forEach(items=>{
+    items.sort((a,b)=>(a.run.order??99999)-(b.run.order??99999));
+  });
+
+  const ordenTopo=topoOrdenGrupoA(grupoA);
+  const itemsOrdenados=[];
+  ordenTopo.forEach(key=>{
+    (itemsPorNodo[key]||[]).forEach(item=>itemsOrdenados.push(item));
+  });
+
+  const machineEnds={};    // machine -> {date,min}, cursor por máquina
+  const diaOcupadoPorMaq={}; // machine -> {date: cantidad de runs}
+
+  itemsOrdenados.forEach(({run,comp,proj})=>{
+    const maq=comp.machine;
+    if(!machineEnds[maq]) machineEnds[maq]={date:today,min:0};
+    if(!diaOcupadoPorMaq[maq]) diaOcupadoPorMaq[maq]={};
+    const machineEnd=machineEnds[maq];
+    const diaOcupado=diaOcupadoPorMaq[maq];
+
+    const df=depsFloor(comp,proj);
+
+    let start;
+    if(run.fechaFija){
+      const fd=dateStr(skipToWorkingDay(new Date(run.fecha||today)));
+      start=maxTime(maxTime({date:fd,min:0},df),machineEnd);
+    } else {
+      start=maxTime(df,machineEnd);
+    }
+    let startDate=dateStr(skipToWorkingDay(new Date(start.date)));
+
+    // Máximo 2 runs por día calendario en esta máquina
+    while((diaOcupado[startDate]||0)>=2){
+      startDate=dateStr(nextWorkingDay(new Date(startDate)));
+    }
+
+    const durMins=Math.max(1,(comp.mins||0)*(run.qty||1));
+    const res=addWorkingMins(startDate,0,durMins);
+    const end={date:res.date,min:res.minInDay};
+
+    diaOcupado[startDate]=(diaOcupado[startDate]||0)+1;
+    if(end.date!==startDate)
+      diaOcupado[end.date]=(diaOcupado[end.date]||0)+1;
+
+    blocks.push({
+      compId:comp.id,runId:run.id,projId:proj.id,
+      projName:proj.name,machine:maq,
+      start:{date:startDate,min:0},end,durMins,
+      qty:run.qty||1,nota:run.nota||'',
+      fechaFija:!!run.fechaFija,order:run.order
+    });
+
+    machineEnds[maq]=end;
+    setEnd(proj.id,comp.id,end);
+  });
 
   return {blocks};
 }
