@@ -3774,6 +3774,34 @@ function exportExcel(){
   XLSX.writeFile(wb,`produccion_${proj.name.replace(/\s+/g,'_')}.xlsx`);
 }
 
+// ── Export Excel: Componentes (tab Componentes) ────────────────
+function exportComponentesExcel(){
+  const p=currentProject();
+  const isOC=(p.mode||'conjuntos')==='oc';
+  const unitsProd=p.unitsProd||5;
+
+  const rows=[['SUBCONJUNTO','COMPONENTE','MÁQUINA / PROCESO','CANT. POR SUBCONJUNTO','CANT. TOTAL']];
+  p.subconjuntos.forEach(sub=>{
+    let effUnits;
+    if(sub.esRecursoProyecto) effUnits=1;
+    else if(isOC){
+      const oc=(p.ordenesCompra||[]).find(o=>o.id===sub.ocId);
+      effUnits=oc?+(oc.qty||1):1;
+    } else {
+      effUnits=unitsProd;
+    }
+    p.components.filter(c=>c.subId===sub.id).forEach(c=>{
+      rows.push([sub.name,c.name,c.machine||'—',c.qty||0,(c.qty||0)*(sub.qty||1)*effUnits]);
+    });
+  });
+
+  const wb=XLSX.utils.book_new();
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:25},{wch:22},{wch:20},{wch:20},{wch:14}];
+  XLSX.utils.book_append_sheet(wb,ws,'Componentes');
+  XLSX.writeFile(wb,`componentes_${p.name.replace(/\s+/g,'_')}.xlsx`);
+}
+
 // ── Gantt → PDF ───────────────────────────────────────────────
 function exportGanttPDF(){
   const selProjs=projects.filter(p=>ganttSelectedIds.includes(p.id));
