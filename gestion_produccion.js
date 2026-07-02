@@ -3780,7 +3780,7 @@ function exportComponentesExcel(){
   const isOC=(p.mode||'conjuntos')==='oc';
   const unitsProd=p.unitsProd||5;
 
-  const rows=[['SUBCONJUNTO','COMPONENTE','MÁQUINA / PROCESO','CANT. POR SUBCONJUNTO','CANT. TOTAL']];
+  const rows=[['SUBCONJUNTO','COMPONENTE','MÁQUINA / PROCESO','CANT. POR SUBCONJUNTO','CANT. TOTAL','TIEMPO POR PIEZA (MIN)','TIEMPO TOTAL LOTE (MIN)']];
   p.subconjuntos.forEach(sub=>{
     let effUnits;
     if(sub.esRecursoProyecto) effUnits=1;
@@ -3791,13 +3791,17 @@ function exportComponentesExcel(){
       effUnits=unitsProd;
     }
     p.components.filter(c=>c.subId===sub.id).forEach(c=>{
-      rows.push([sub.name,c.name,c.machine||'—',c.qty||0,(c.qty||0)*(sub.qty||1)*effUnits]);
+      const cantTotal=(c.qty||0)*(sub.qty||1)*effUnits;
+      const standAlone=isMaquinaDias(c.machine);
+      const tiempoPorPieza=standAlone?`${c.dias||1} días`:(c.mins||0);
+      const tiempoTotalLote=standAlone?'':(c.mins||0)*cantTotal;
+      rows.push([sub.name,c.name,c.machine||'—',c.qty||0,cantTotal,tiempoPorPieza,tiempoTotalLote]);
     });
   });
 
   const wb=XLSX.utils.book_new();
   const ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{wch:25},{wch:22},{wch:20},{wch:20},{wch:14}];
+  ws['!cols']=[{wch:25},{wch:22},{wch:20},{wch:20},{wch:14},{wch:20},{wch:20}];
   XLSX.utils.book_append_sheet(wb,ws,'Componentes');
   XLSX.writeFile(wb,`componentes_${p.name.replace(/\s+/g,'_')}.xlsx`);
 }
