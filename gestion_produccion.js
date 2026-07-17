@@ -2948,7 +2948,7 @@ function computeGanttBlocks(projList){
 
   itemsOrdenados.forEach(({run,comp,proj})=>{
     const maq=comp.machine;
-    if(!machineEnds[maq]) machineEnds[maq]={date:today,min:0};
+    if(!machineEnds[maq]) machineEnds[maq]={date:'1970-01-01',min:0};
     if(!diaOcupadoPorMaq[maq]) diaOcupadoPorMaq[maq]={};
     const machineEnd=machineEnds[maq];
     const diaOcupado=diaOcupadoPorMaq[maq];
@@ -4241,28 +4241,25 @@ let _otEditNum=null; // null = nueva OT, number = editando existente
 
 function getOrdenes(){return currentProject().ordenes||[];}
 
-// Buscar OT activa (no anulada) para un run — busca en lista runs[] y en compId/runId legacy
+// Buscar OT activa (no anulada) para un run — busca en lista runs[] y en compId/runId legacy.
+// IMPORTANTE: acotado al proyecto activo. compId/runId son contadores que reinician en
+// cada proyecto (_cpId arranca en 30, _runId en 1000), así que buscar en projects[] completo
+// puede matchear por casualidad un componente/run de OTRO proyecto con el mismo id numérico.
 function findOTForRun(compId,runId){
-  for(const p of projects){
-    const ot=(p.ordenes||[]).find(o=>{
-      if(o.anulada)return false;
-      if(o.runs&&o.runs.length>0)return o.runs.some(r=>r.compId===compId&&r.runId===runId);
-      return o.compId===compId&&o.runId===runId;
-    });
-    if(ot)return ot;
-  }
-  return null;
+  const ot=(currentProject().ordenes||[]).find(o=>{
+    if(o.anulada)return false;
+    if(o.runs&&o.runs.length>0)return o.runs.some(r=>r.compId===compId&&r.runId===runId);
+    return o.compId===compId&&o.runId===runId;
+  });
+  return ot||null;
 }
-// Buscar CUALQUIER OT para un run (incluyendo anuladas) para tabla
+// Buscar CUALQUIER OT para un run (incluyendo anuladas) para tabla — también acotado al proyecto activo
 function findAnyOTForRun(compId,runId){
-  for(const p of projects){
-    const ot=(p.ordenes||[]).find(o=>{
-      if(o.runs&&o.runs.length>0)return o.runs.some(r=>r.compId===compId&&r.runId===runId);
-      return o.compId===compId&&o.runId===runId;
-    });
-    if(ot)return ot;
-  }
-  return null;
+  const ot=(currentProject().ordenes||[]).find(o=>{
+    if(o.runs&&o.runs.length>0)return o.runs.some(r=>r.compId===compId&&r.runId===runId);
+    return o.compId===compId&&o.runId===runId;
+  });
+  return ot||null;
 }
 
 function _setOTNumeroEditable(editable){
@@ -4299,7 +4296,6 @@ function openOT(compId,runId){
     _otEditNum=null;
     clearOTFields();
     _fillOTDefaultsFromComponent(compId,runId);
-    document.getElementById('ot-numero-input').value='';
     _setOTNumeroEditable(true);
     // Mostrar selector para vincular a OT existente
     _showOTLinkSelector(compId,runId,null);
@@ -4313,27 +4309,31 @@ function openOT(compId,runId){
 // Precarga los campos de la OT con los datos del componente/run — se usa tanto al
 // abrir el modal para un componente sin OT como al volver a elegir "— Nueva OT —"
 // desde el selector de vinculación, para no perder los valores sugeridos.
+// Próximo N° de OT correlativo — mismo criterio que saveOT() al crear una OT nueva sin número manual
+function _nextOtNum(){
+  const liveMax=projects.reduce((mx,p)=>Math.max(mx,...(p.ordenes||[])
+    .filter(o=>o.fechaPedido||o.cliente||o.descripcion||o.pieza)
+    .map(o=>o.otNum||0)),0);
+  return Math.max(274,liveMax+1);
+}
+
 function _fillOTDefaultsFromComponent(compId,runId){
   const comp=components.find(c=>c.id===compId);
   const run=comp?.runs?.find(r=>r.id===runId);
   if(!comp||!run)return;
   const sub=subconjuntos.find(s=>s.id===comp.subId);
+  document.getElementById('ot-numero-input').value=_nextOtNum();
+  document.getElementById('ot-fecha-pedido').value=dateStr(new Date());
+  document.getElementById('ot-fecha-entrega').value='';
+  document.getElementById('ot-cliente').value='';
+  document.getElementById('ot-doc-asoc').value='';
   document.getElementById('ot-descripcion').value=comp.name||'';
   document.getElementById('ot-pieza').value=sub?.name||'';
   document.getElementById('ot-unid-val').textContent=run.qty||1;
-  // Calcular fechas reales del run desde el scheduler
-  const{blocks}=computeGanttBlocks(projects);
-  const block=blocks.find(b=>b.compId===compId&&b.runId===runId);
-  if(block){
-    document.getElementById('ot-fecha-pedido').value=block.start.date;
-    document.getElementById('ot-fecha-entrega').value=block.end.date;
-  } else {
-    document.getElementById('ot-fecha-pedido').value=run.fecha||'';
-  }
   // H. PROC. editable — sugerir duración calculada
   const durMins=isMaquinaDias(comp.machine)?(comp.dias||1)*MINS_PER_DAY:(comp.mins||0)*(run.qty||1);
   document.getElementById('ot-hproc').value=fmtDur(durMins);
-  // pre-tildar proceso
+  // pre-tildar SOLO el proceso del componente actual
   const chkMap={'Torno':'ot-chk-torno','Centro':'ot-chk-centro',
     'Soldadura':'ot-chk-soldadura','Ensamble':'ot-chk-centro',
     'Compra MP':'ot-chk-corte'};
@@ -4384,7 +4384,6 @@ function _showOTLinkSelector(compId,runId,currentOtNum){
       _otEditNum=null;
       clearOTFields();
       _fillOTDefaultsFromComponent(compId,runId);
-      document.getElementById('ot-numero-input').value='';
       _setOTNumeroEditable(true);
     }
   };
@@ -4490,10 +4489,7 @@ function saveOT(){
         return false;
       }
     }
-    const _liveMaxOt=projects.reduce((mx,p)=>Math.max(mx,...(p.ordenes||[])
-      .filter(o=>o.fechaPedido||o.cliente||o.descripcion||o.pieza)
-      .map(o=>o.otNum||0)),0);
-    const otNum=inputNum>0?inputNum:Math.max(274,_liveMaxOt+1);
+    const otNum=inputNum>0?inputNum:_nextOtNum();
     _otCounter=Math.max(_otCounter, otNum)+1;
     document.getElementById('ot-numero').textContent=otNum;
     _setOTNumeroEditable(false);
