@@ -4287,9 +4287,6 @@ function openOT(compId,runId){
   // comprobar si ya existe OT para este run
   const existing=findOTForRun(compId,runId);
 
-  // Buscar todas las OTs activas del proyecto actual para poder reutilizar
-  const allActiveOTs=(currentProject().ordenes||[]).filter(o=>!o.anulada);
-
   if(existing){
     _otEditNum=existing._uid||existing.otNum;
     loadOTFields(existing);
@@ -4297,35 +4294,15 @@ function openOT(compId,runId){
     document.getElementById('ot-numero').textContent=existing.otNum;
     _setOTNumeroEditable(false);
     // Mostrar selector para vincular a OT diferente
-    _showOTLinkSelector(compId,runId,allActiveOTs,existing._uid||existing.otNum);
+    _showOTLinkSelector(compId,runId,existing._uid||existing.otNum);
   } else {
     _otEditNum=null;
     clearOTFields();
-    const sub=subconjuntos.find(s=>s.id===comp.subId);
-    document.getElementById('ot-descripcion').value=comp.name||'';
-    document.getElementById('ot-pieza').value=sub?.name||'';
-    document.getElementById('ot-unid-val').textContent=run.qty||1;
-    // Calcular fechas reales del run desde el scheduler
-    const{blocks}=computeGanttBlocks(projects);
-    const block=blocks.find(b=>b.compId===compId&&b.runId===runId);
-    if(block){
-      document.getElementById('ot-fecha-pedido').value=block.start.date;
-      document.getElementById('ot-fecha-entrega').value=block.end.date;
-    } else {
-      document.getElementById('ot-fecha-pedido').value=run.fecha||'';
-    }
-    // H. PROC. editable — sugerir duración calculada
-    const durMins=isMaquinaDias(comp.machine)?(comp.dias||1)*MINS_PER_DAY:(comp.mins||0)*(run.qty||1);
-    document.getElementById('ot-hproc').value=fmtDur(durMins);
-    // pre-tildar proceso
-    const chkMap={'Torno':'ot-chk-torno','Centro':'ot-chk-centro',
-      'Soldadura':'ot-chk-soldadura','Ensamble':'ot-chk-centro',
-      'Compra MP':'ot-chk-corte'};
-    if(chkMap[comp.machine])document.getElementById(chkMap[comp.machine]).checked=true;
+    _fillOTDefaultsFromComponent(compId,runId);
     document.getElementById('ot-numero-input').value='';
     _setOTNumeroEditable(true);
     // Mostrar selector para vincular a OT existente
-    _showOTLinkSelector(compId,runId,allActiveOTs,null);
+    _showOTLinkSelector(compId,runId,null);
   }
 
   // generar filas de producción vacías
@@ -4333,24 +4310,80 @@ function openOT(compId,runId){
   document.getElementById('modal-ot').style.display='flex';
 }
 
-// Muestra selector para vincular/desvincular OT existente
-function _showOTLinkSelector(compId,runId,allOTs,currentOtNum){
+// Precarga los campos de la OT con los datos del componente/run — se usa tanto al
+// abrir el modal para un componente sin OT como al volver a elegir "— Nueva OT —"
+// desde el selector de vinculación, para no perder los valores sugeridos.
+function _fillOTDefaultsFromComponent(compId,runId){
+  const comp=components.find(c=>c.id===compId);
+  const run=comp?.runs?.find(r=>r.id===runId);
+  if(!comp||!run)return;
+  const sub=subconjuntos.find(s=>s.id===comp.subId);
+  document.getElementById('ot-descripcion').value=comp.name||'';
+  document.getElementById('ot-pieza').value=sub?.name||'';
+  document.getElementById('ot-unid-val').textContent=run.qty||1;
+  // Calcular fechas reales del run desde el scheduler
+  const{blocks}=computeGanttBlocks(projects);
+  const block=blocks.find(b=>b.compId===compId&&b.runId===runId);
+  if(block){
+    document.getElementById('ot-fecha-pedido').value=block.start.date;
+    document.getElementById('ot-fecha-entrega').value=block.end.date;
+  } else {
+    document.getElementById('ot-fecha-pedido').value=run.fecha||'';
+  }
+  // H. PROC. editable — sugerir duración calculada
+  const durMins=isMaquinaDias(comp.machine)?(comp.dias||1)*MINS_PER_DAY:(comp.mins||0)*(run.qty||1);
+  document.getElementById('ot-hproc').value=fmtDur(durMins);
+  // pre-tildar proceso
+  const chkMap={'Torno':'ot-chk-torno','Centro':'ot-chk-centro',
+    'Soldadura':'ot-chk-soldadura','Ensamble':'ot-chk-centro',
+    'Compra MP':'ot-chk-corte'};
+  if(chkMap[comp.machine])document.getElementById(chkMap[comp.machine]).checked=true;
+}
+
+// Muestra selector para vincular/desvincular OT existente.
+// Sólo lista OTs del PROYECTO ACTIVO (se recalcula siempre desde currentProject(),
+// sin confiar en lo que el llamador tenga a mano), agrupando primero las OTs cuyo
+// componente vinculado comparte la misma máquina/proceso que el componente actual
+// (ej: Torno), y dejando el resto del proyecto en un grupo aparte sin ocultarlas.
+function _showOTLinkSelector(compId,runId,currentOtNum){
   const wrap=document.getElementById('ot-link-wrap');
   if(!wrap)return;
-  if(allOTs.length===0){wrap.style.display='none';return;}
+  const projOTs=(currentProject().ordenes||[]).filter(o=>!o.anulada);
+  if(projOTs.length===0){wrap.style.display='none';return;}
   wrap.style.display='block';
   const sel=document.getElementById('ot-link-sel');
-  sel.innerHTML=`<option value="">— Nueva OT —</option>`+
-    allOTs.map(o=>{const k=o._uid||o.otNum;return`<option value="${k}" ${k===currentOtNum?'selected':''}>
+
+  const comp=components.find(c=>c.id===compId);
+  const maq=comp?.machine;
+  function otMachine(o){
+    const firstRun=(o.runs&&o.runs[0])||{compId:o.compId,runId:o.runId};
+    const c=components.find(x=>x.id===firstRun.compId);
+    return c?.machine;
+  }
+  const related=maq?projOTs.filter(o=>otMachine(o)===maq):[];
+  const others=maq?projOTs.filter(o=>otMachine(o)!==maq):projOTs;
+
+  const opt=o=>{const k=o._uid||o.otNum;return`<option value="${k}" ${k===currentOtNum?'selected':''}>
       OT N°${o.otNum} · ${o.descripcion||o.pieza||'Sin descripción'}
-    </option>`;}).join('');
+    </option>`;};
+
+  let html=`<option value="" ${!currentOtNum?'selected':''}>— Nueva OT —</option>`;
+  if(maq&&related.length>0&&others.length>0){
+    html+=`<optgroup label="${MICON[maq]||''} ${maq}">${related.map(opt).join('')}</optgroup>`;
+    html+=`<optgroup label="Otros procesos">${others.map(opt).join('')}</optgroup>`;
+  } else {
+    html+=[...related,...others].map(opt).join('');
+  }
+  sel.innerHTML=html;
   sel.onchange=function(){
     const key=+this.value||null;
     if(key){
-      const ot=allOTs.find(o=>(o._uid||o.otNum)===key);
+      const ot=projOTs.find(o=>(o._uid||o.otNum)===key);
       if(ot){_otEditNum=key;loadOTFields(ot);}
     } else {
-      _otEditNum=null;clearOTFields();
+      _otEditNum=null;
+      clearOTFields();
+      _fillOTDefaultsFromComponent(compId,runId);
       document.getElementById('ot-numero-input').value='';
       _setOTNumeroEditable(true);
     }
@@ -4975,8 +5008,7 @@ function reopenOT(k){
     document.getElementById('ot-numero').textContent=ot.otNum;
     loadOTFields(ot);
     buildProdRows();
-    const allActiveOTs=(p.ordenes||[]).filter(o=>!o.anulada);
-    _showOTLinkSelector(firstRun.compId,firstRun.runId,allActiveOTs,ot._uid||ot.otNum);
+    _showOTLinkSelector(firstRun.compId,firstRun.runId,ot._uid||ot.otNum);
     document.getElementById('modal-ot').style.display='flex';
   },50);
 }
