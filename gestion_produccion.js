@@ -2840,20 +2840,9 @@ function computeGanttBlocks(projList){
     items.sort((a,b)=>(a.run.order??99999)-(b.run.order??99999));
     items.forEach(({run,comp,proj})=>{
       const df=depsFloor(comp,proj);
-      let startDate;
-      if(run.fechaFija){
-        // Fecha fija: siempre exacta (pasado o futuro), solo depsFloor como piso mínimo
-        const fd=dateStr(skipToWorkingDay(new Date(run.fecha||today)));
-        startDate=maxTime({date:fd,min:0},df).date;
-      } else if(run.fecha&&run.fecha<today){
-        // Ya empezó / debería haber empezado: se respeta la fecha real tal cual, sin
-        // aplicar depsFloor como piso — nunca se mueve al futuro en cada recálculo.
-        startDate=run.fecha;
-      } else {
-        // Futuro sin fecha fija: comportamiento actual
-        const fechaRun=dateStr(skipToWorkingDay(new Date(run.fecha||today)));
-        startDate=maxTime({date:fechaRun,min:0},df).date;
-      }
+      const fechaRun=dateStr(skipToWorkingDay(new Date(run.fecha||today)));
+      const start=maxTime({date:fechaRun,min:0},df);
+      const startDate=start.date;
       const durMins=Math.max(1,(comp.dias||1)*480);
       const res=addWorkingMins(startDate,0,durMins);
       const end={date:res.date,min:res.minInDay};
@@ -2965,30 +2954,19 @@ function computeGanttBlocks(projList){
     const diaOcupado=diaOcupadoPorMaq[maq];
 
     const df=depsFloor(comp,proj);
-    const yaEmpezado=!run.fechaFija&&run.fecha&&run.fecha<today;
 
-    let start,startDate;
+    let start;
     if(run.fechaFija){
-      // Fecha fija: siempre exacta (pasado o futuro), solo depsFloor como piso mínimo
       const fd=dateStr(skipToWorkingDay(new Date(run.fecha||today)));
-      start=maxTime({date:fd,min:0},df);
-      startDate=dateStr(skipToWorkingDay(new Date(start.date)));
-    } else if(yaEmpezado){
-      // Ya empezó / debería haber empezado: se respeta la fecha real tal cual, sin
-      // aplicar machineEnd ni depsFloor como piso — nunca se mueve al futuro en
-      // cada recálculo del scheduler.
-      startDate=run.fecha;
+      start=maxTime(maxTime({date:fd,min:0},df),machineEnd);
     } else {
-      // Futuro sin fecha fija: comportamiento actual de cola
       start=maxTime(df,machineEnd);
-      startDate=dateStr(skipToWorkingDay(new Date(start.date)));
     }
+    let startDate=dateStr(skipToWorkingDay(new Date(start.date)));
 
-    // Máximo 2 runs por día calendario en esta máquina (no aplica a runs que ya empezaron)
-    if(!yaEmpezado){
-      while((diaOcupado[startDate]||0)>=2){
-        startDate=dateStr(nextWorkingDay(new Date(startDate)));
-      }
+    // Máximo 2 runs por día calendario en esta máquina
+    while((diaOcupado[startDate]||0)>=2){
+      startDate=dateStr(nextWorkingDay(new Date(startDate)));
     }
 
     const durMins=Math.max(1,(comp.mins||0)*(run.qty||1));
