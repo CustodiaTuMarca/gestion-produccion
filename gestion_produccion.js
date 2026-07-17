@@ -2800,8 +2800,9 @@ function computeGanttBlocks(projList){
   // se arman en la UI contra componentes del propio proyecto y los IDs
   // de componente no son únicos entre proyectos, así que buscar cruzado
   // podría emparejar por error componentes de proyectos distintos.
-  // Si no hay deps o no hay datos para estimarlas, el piso es "hoy"
-  // (nunca null, nunca bloquea el run).
+  // Si no hay deps (o no hay datos para estimarlas) el piso es "sin
+  // restricción" (fecha centinela muy antigua) — nunca "hoy": el
+  // scheduler no debe forzar ningún run a partir de la fecha actual.
   function depsFloor(comp,proj){
     let floor=null;
     for(const depId of (comp.deps||[])){
@@ -2826,7 +2827,7 @@ function computeGanttBlocks(projList){
         });
       }
     }
-    return floor||{date:today,min:0};
+    return floor||{date:'1970-01-01',min:0};
   }
 
   // ── GRUPO B: procesos externos — sin disponibilidad lineal, pueden superponerse ──
@@ -2859,96 +2860,100 @@ function computeGanttBlocks(projList){
     });
   });
 
-  // ── GRUPO A: máquinas serie, en orden topológico de dependencias ──
-  // Las máquinas de Grupo A pueden depender entre sí (p.ej. Centro depende
-  // de Torno). Si se procesaran agrupadas por máquina en orden arbitrario,
-  // la máquina que se procesa primero no ve el compEnd de una máquina que
-  // todavía no fue procesada, y depsFloor cae en una estimación ingenua que
-  // ignora la cola real de esa máquina. Para resolverlo, se ordenan los
-  // COMPONENTES (no las máquinas) topológicamente: un componente con deps
-  // siempre se procesa después de todos sus deps, sin importar en qué
-  // máquina esté cada uno. Dentro de un mismo nivel topológico (sin relación
-  // de dependencia entre sí) se respeta run.order. Los ciclos de deps se
-  // ignoran (se agregan igual, sin bloquear el resto).
-  //
-  // El cursor de cada máquina (machineEnd/diaOcupado) es independiente por
-  // máquina y se actualiza en el orden en que se van procesando los runs de
-  // esa máquina según el orden topológico global — así nunca se superponen
-  // runs de una misma máquina.
-  function topoOrdenGrupoA(items){
-    // nodo = "projId:compId" — clave única entre proyectos (evita colisión
-    // de IDs de componente entre proyectos distintos)
-    const nodos={};
-    items.forEach(({run,comp,proj})=>{
-      const key=`${proj.id}:${comp.id}`;
-      const order=run.order??99999;
-      if(!nodos[key]) nodos[key]={key,comp,proj,minOrder:order};
-      else if(order<nodos[key].minOrder) nodos[key].minOrder=order;
-    });
-    const keys=Object.keys(nodos);
-    const nodeSet=new Set(keys);
+  // ── GRUPO A: máquinas serie ──
+  // La cola de cada máquina es SIEMPRE los runs de esa máquina ordenados por
+  // run.order — ese orden nunca lo altera una dependencia; solo cambia cuando
+  // el usuario lo edita explícitamente (antes de/después de/cola, que ya
+  // recalculan run.order aguas arriba). El sort topológico se usa ÚNICAMENTE
+  // para decidir en qué momento se "visita" cada run cuando hay dependencias
+  // entre máquinas distintas (p.ej. Centro depende de Torno), de forma que
+  // compEnd de la dependencia ya esté calculado con la cola real de su
+  // máquina al momento de resolver el piso del dependiente. Para que el topo
+  // sort NUNCA reordene una misma máquina, el grafo incluye una arista
+  // explícita entre cada run y el siguiente en la cola de su propia máquina
+  // (según run.order): Kahn's algorithm respeta esas aristas por
+  // construcción, así que dos runs de la misma máquina siempre se procesan
+  // en su orden de cola, sin importar en qué momento entren otras máquinas.
+  function ordenarGrupoA(items){
+    // nodo = "projId:compId:runId" — clave única entre proyectos (los IDs
+    // de componente/run no son únicos entre proyectos distintos)
+    const nodeKey=({run,comp,proj})=>`${proj.id}:${comp.id}:${run.id}`;
+    const byKey={};
+    items.forEach(it=>{ byKey[nodeKey(it)]=it; });
+    const keys=Object.keys(byKey);
 
-    // adj[dep] = [nodos que dependen de dep] · inDegree[nodo] = cant. de deps propias
     const adj={}, inDegree={};
     keys.forEach(k=>{ adj[k]=[]; inDegree[k]=0; });
-    keys.forEach(k=>{
-      const {comp,proj}=nodos[k];
+    function addEdge(a,b){
+      if(a===b||!byKey[a]||!byKey[b]) return;
+      adj[a].push(b);
+      inDegree[b]++;
+    }
+
+    // 1) Cadena de cola por máquina (global entre proyectos): cada run solo
+    // puede procesarse después del run anterior de su misma máquina.
+    const porMaquina={};
+    items.forEach(it=>{
+      const maq=it.comp.machine;
+      if(!porMaquina[maq]) porMaquina[maq]=[];
+      porMaquina[maq].push(it);
+    });
+    Object.values(porMaquina).forEach(lista=>{
+      lista.sort((a,b)=>(a.run.order??99999)-(b.run.order??99999));
+      for(let i=1;i<lista.length;i++) addEdge(nodeKey(lista[i-1]),nodeKey(lista[i]));
+    });
+
+    // 2) Dependencias cross-máquina: TODOS los runs del componente dependencia
+    // deben procesarse antes que CUALQUIER run del componente dependiente,
+    // así compEnd queda con el fin real (máximo) de la dependencia.
+    const porComponente={};
+    items.forEach(it=>{
+      const ck=`${it.proj.id}:${it.comp.id}`;
+      if(!porComponente[ck]) porComponente[ck]=[];
+      porComponente[ck].push(it);
+    });
+    items.forEach(it=>{
+      const{comp,proj}=it;
       (comp.deps||[]).forEach(depId=>{
-        const depKey=`${proj.id}:${depId}`;
-        if(depKey!==k && nodeSet.has(depKey)){
-          adj[depKey].push(k);
-          inDegree[k]++;
-        }
+        const depItems=porComponente[`${proj.id}:${depId}`];
+        if(!depItems) return; // dependencia no está en Grupo A (ya se resolvió en Grupo B)
+        depItems.forEach(depIt=>addEdge(nodeKey(depIt),nodeKey(it)));
       });
     });
 
-    // Kahn's algorithm: los nodos sin deps pendientes van primero;
-    // entre varios disponibles a la vez, se ordena por run.order (minOrder)
+    // Kahn's algorithm — entre varios nodos listos a la vez se desempata por
+    // run.order. Los ciclos (deps circulares) se agregan igual al final, por
+    // run.order, para no bloquear el resto del scheduler.
+    const ordenDe=k=>byKey[k].run.order??99999;
     const orden=[];
     const visitado=new Set();
     let frontera=keys.filter(k=>inDegree[k]===0);
     while(frontera.length){
-      frontera.sort((a,b)=>nodos[a].minOrder-nodos[b].minOrder);
+      frontera.sort((a,b)=>ordenDe(a)-ordenDe(b));
       const k=frontera.shift();
       if(visitado.has(k)) continue;
       visitado.add(k);
       orden.push(k);
-      adj[k].forEach(dep=>{
-        inDegree[dep]--;
-        if(inDegree[dep]===0) frontera.push(dep);
+      adj[k].forEach(sig=>{
+        inDegree[sig]--;
+        if(inDegree[sig]===0) frontera.push(sig);
       });
     }
-    // Ciclos: nodos que nunca llegaron a inDegree 0 — se agregan igual,
-    // ordenados por run.order, para no bloquear el resto del scheduler
     keys.filter(k=>!visitado.has(k))
-      .sort((a,b)=>nodos[a].minOrder-nodos[b].minOrder)
+      .sort((a,b)=>ordenDe(a)-ordenDe(b))
       .forEach(k=>orden.push(k));
 
-    return orden;
+    return orden.map(k=>byKey[k]);
   }
 
-  const itemsPorNodo={};
-  grupoA.forEach(item=>{
-    const key=`${item.proj.id}:${item.comp.id}`;
-    if(!itemsPorNodo[key]) itemsPorNodo[key]=[];
-    itemsPorNodo[key].push(item);
-  });
-  Object.values(itemsPorNodo).forEach(items=>{
-    items.sort((a,b)=>(a.run.order??99999)-(b.run.order??99999));
-  });
+  const itemsOrdenados=ordenarGrupoA(grupoA);
 
-  const ordenTopo=topoOrdenGrupoA(grupoA);
-  const itemsOrdenados=[];
-  ordenTopo.forEach(key=>{
-    (itemsPorNodo[key]||[]).forEach(item=>itemsOrdenados.push(item));
-  });
-
-  const machineEnds={};    // machine -> {date,min}, cursor por máquina
-  const diaOcupadoPorMaq={}; // machine -> {date: cantidad de runs}
+  const machineEnds={};     // machine -> {date,min,durMins} del último run agendado
+  const diaOcupadoPorMaq={}; // machine -> {date: cantidad de runs} — tope de 2 por día
 
   itemsOrdenados.forEach(({run,comp,proj})=>{
     const maq=comp.machine;
-    if(!machineEnds[maq]) machineEnds[maq]={date:'1970-01-01',min:0};
+    if(!machineEnds[maq]) machineEnds[maq]={date:'1970-01-01',min:0,durMins:0};
     if(!diaOcupadoPorMaq[maq]) diaOcupadoPorMaq[maq]={};
     const machineEnd=machineEnds[maq];
     const diaOcupado=diaOcupadoPorMaq[maq];
@@ -2957,25 +2962,39 @@ function computeGanttBlocks(projList){
 
     let start;
     if(run.fechaFija){
+      // Fecha fija: siempre exacta (pasado o futuro), solo depsFloor como piso mínimo
       const fd=dateStr(skipToWorkingDay(new Date(run.fecha||today)));
-      start=maxTime(maxTime({date:fd,min:0},df),machineEnd);
+      start=maxTime({date:fd,min:0},df);
     } else {
-      start=maxTime(df,machineEnd);
+      // Cola: fin del run anterior de la máquina vs. fin de dependencias. Se
+      // suma run.fecha solo como ancla de un run que todavía no tiene ningún
+      // piso real (primero de una cola vacía, sin deps) — nunca "hoy": jamás
+      // se recalcula en base a la fecha actual, solo en base a la cola real
+      // y las dependencias.
+      const fr=dateStr(skipToWorkingDay(new Date(run.fecha||today)));
+      start=maxTime(maxTime(machineEnd,df),{date:fr,min:0});
     }
     let startDate=dateStr(skipToWorkingDay(new Date(start.date)));
 
-    // Máximo 2 runs por día calendario en esta máquina
+    const durMins=Math.max(1,(comp.mins||0)*(run.qty||1));
+
+    // Transición mismo día con el run anterior de la máquina: solo permitida
+    // si alguno de los dos dura menos de 4hs (240min); si ambos duran 4hs o
+    // más, este pasa al día hábil siguiente.
+    if(startDate===machineEnd.date && machineEnd.durMins>=240 && durMins>=240){
+      startDate=dateStr(nextWorkingDay(new Date(startDate)));
+    }
+
+    // Tope de 2 runs compartiendo un mismo día calendario en esta máquina
     while((diaOcupado[startDate]||0)>=2){
       startDate=dateStr(nextWorkingDay(new Date(startDate)));
     }
 
-    const durMins=Math.max(1,(comp.mins||0)*(run.qty||1));
     const res=addWorkingMins(startDate,0,durMins);
     const end={date:res.date,min:res.minInDay};
 
     diaOcupado[startDate]=(diaOcupado[startDate]||0)+1;
-    if(end.date!==startDate)
-      diaOcupado[end.date]=(diaOcupado[end.date]||0)+1;
+    if(end.date!==startDate) diaOcupado[end.date]=(diaOcupado[end.date]||0)+1;
 
     blocks.push({
       compId:comp.id,runId:run.id,projId:proj.id,
@@ -2985,7 +3004,9 @@ function computeGanttBlocks(projList){
       fechaFija:!!run.fechaFija,order:run.order
     });
 
-    machineEnds[maq]=end;
+    // Avance monotónico: nunca retrocede el cursor (una fecha fija que cae
+    // antes del cursor actual no debe "liberar" la máquina hacia atrás)
+    if(cmpTime(end,machineEnd)>0) machineEnds[maq]={...end,durMins};
     setEnd(proj.id,comp.id,end);
   });
 
