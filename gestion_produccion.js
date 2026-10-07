@@ -127,8 +127,8 @@ function tp(n){let d=new Date(today);for(let i=0;i<n;i++){d=nextWorkingDay(d);}r
 // Máquinas con recurso único (no se superponen en Gantt)
 const MAQUINAS_SERIE=['Corte','Torno','Centro','Soldadura','Ensamble'];
 // Máquinas con tiempo en días (independiente de cantidad)
-const MAQUINAS_DIAS=['Compra MP','Trabajos de Terceros'];
-const MACHINES=['Compra MP','Corte','Torno','Centro','Soldadura','Ensamble','Trabajos de Terceros'];
+const MAQUINAS_DIAS=['Compra MP','Trabajos de Terceros','MP Provista por Cliente'];
+const MACHINES=['Compra MP','Corte','Torno','Centro','Soldadura','Ensamble','Trabajos de Terceros','MP Provista por Cliente'];
 // Color fijo por máquina/proceso — consistente en todo el Gantt
 const MACHINE_COLORS={
   'Compra MP':     '#f0b27a',
@@ -138,8 +138,9 @@ const MACHINE_COLORS={
   'Soldadura':     '#ec7063',
   'Ensamble':      '#bb8fce',
   'Trabajos de Terceros': '#76d7c4',
+  'MP Provista por Cliente': '#f7dc6f',
 };
-const MICON={'Compra MP':'🛒','Corte':'✂️','Torno':'🔩','Centro':'⚙️','Soldadura':'🔥','Ensamble':'🔧','Trabajos de Terceros':'🏭'};
+const MICON={'Compra MP':'🛒','Corte':'✂️','Torno':'🔩','Centro':'⚙️','Soldadura':'🔥','Ensamble':'🔧','Trabajos de Terceros':'🏭','MP Provista por Cliente':'📦'};
 const SUBCOLORS=['#2980b9','#1a7a4a','#8e44ad','#d68910','#c0392b','#16a085','#d35400','#1a5276'];
 const COMPCOLORS=['#5dade2','#58d68d','#bb8fce','#f0b27a','#ec7063','#76d7c4','#f1948a','#82e0aa','#85c1e9','#a9cce3'];
 const DEPOSITOS=['Alemi','Rectificado','Pintura','Gustavo','Tratamiento Termico','Proveedor','En transito'];
@@ -538,6 +539,23 @@ function toggleDepDrop(id,e){
   m.style.left=r.left+'px';
   m.style.width=r.width+'px';
   m.style.display='block';
+  // Resetear buscador y foco al abrir
+  const search=document.getElementById('dep-search-'+id);
+  if(search){
+    search.value='';
+    filterDepOptions(id);
+    setTimeout(()=>search.focus(),0);
+  }
+}
+function filterDepOptions(id){
+  const search=document.getElementById('dep-search-'+id);
+  const list=document.getElementById('dep-opts-'+id);
+  if(!search||!list)return;
+  const q=search.value.trim().toLowerCase();
+  list.querySelectorAll('.dep-option').forEach(opt=>{
+    const match=!q||(opt.dataset.search||'').includes(q);
+    opt.classList.toggle('dep-hidden',!match);
+  });
 }
 function toggleDep(compId,depId,checked){
   const c=components.find(x=>x.id===compId);if(!c)return;
@@ -842,7 +860,8 @@ function _renderSubCards(subsArr, el, baseColorIdx, isOC, oc){
         ?'<div style="padding:6px 10px;font-size:11px;color:#aaa">Sin otros componentes</div>'
         :allOthers.map(o=>{
             const oSub=subconjuntos.find(s=>s.id===o.subId);
-            return `<label class="dep-option">
+            const searchTxt=`${o.name||''} ${oSub?oSub.name:''}`.toLowerCase().replace(/"/g,'&quot;');
+            return `<label class="dep-option" data-search="${searchTxt}">
               <input type="checkbox" value="${o.id}" ${c.deps.includes(o.id)?'checked':''} onchange="toggleDep(${c.id},${o.id},this.checked)">
               <span>${o.name||'?'} <span style="color:#aaa;font-size:10px">(${oSub?oSub.name:'?'})</span></span>
             </label>`;
@@ -870,6 +889,13 @@ function _renderSubCards(subsArr, el, baseColorIdx, isOC, oc){
           </div>`;
       }
 
+      const esMP=c.machine==='Compra MP'||c.machine==='MP Provista por Cliente';
+      const descMPField=esMP?`
+        <div class="field"><label>📝 Descripción MP</label>
+          <input type="text" value="${(c.descripcionMP||'').replace(/"/g,'&quot;')}" placeholder="Ej: barra cromada 30mm"
+            onchange="components.find(x=>x.id==${c.id}).descripcionMP=this.value">
+        </div>`:'';
+
       const fab=totalStockComp(c.id);
       return `<div class="comp-card">
         <div class="comp-header">
@@ -896,6 +922,7 @@ function _renderSubCards(subsArr, el, baseColorIdx, isOC, oc){
               onchange="components.find(x=>x.id==${c.id}).qty=+this.value;renderSubList()">
           </div>
           ${tiempoField}
+          ${descMPField}
           <div class="field"><label style="display:flex;align-items:center;gap:4px">En stock <span style="font-size:9px;background:#e8f4e8;color:#1a7a4a;padding:1px 5px;border-radius:6px">Avance/Stock</span></label>
             <input type="text" value="${fab}" readonly style="background:#f5f5f3;color:${fab>0?'#1a7a4a':'#aaa'};font-weight:700;cursor:default">
           </div>
@@ -904,7 +931,11 @@ function _renderSubCards(subsArr, el, baseColorIdx, isOC, oc){
               <button type="button" class="dep-trigger" onclick="toggleDepDrop(${c.id},event)">
                 <span id="dep-label-${c.id}">${depLabel(c)}</span><span>▾</span>
               </button>
-              <div class="dep-menu" id="dep-menu-${c.id}" style="display:none">${depOpts}</div>
+              <div class="dep-menu" id="dep-menu-${c.id}" style="display:none">
+                <input type="text" class="dep-search" id="dep-search-${c.id}" placeholder="Buscar componente…"
+                  oninput="filterDepOptions(${c.id})" onclick="event.stopPropagation()">
+                <div class="dep-opts-list" id="dep-opts-${c.id}">${depOpts}</div>
+              </div>
             </div>
           </div>
         </div>
@@ -2298,10 +2329,10 @@ function doAddRun(){
   updateRunModal();
   renderSubList();
   renderStock();
-  // Abrir NP para Compra MP, OT para procesos internos, nada para Trabajos de Terceros
+  // Abrir NP para Compra MP, OT para procesos internos, nada para Trabajos de Terceros / MP Provista por Cliente
   if(c.machine==='Compra MP'){
     setTimeout(()=>openNPForRun(compId,run.id),200);
-  } else if(c.machine!=='Trabajos de Terceros'){
+  } else if(c.machine!=='Trabajos de Terceros'&&c.machine!=='MP Provista por Cliente'){
     setTimeout(()=>openOT(compId,run.id),200);
   }
 }
@@ -2948,7 +2979,7 @@ function computeGanttBlocks(projList){
 
   itemsOrdenados.forEach(({run,comp,proj})=>{
     const maq=comp.machine;
-    if(!machineEnds[maq]) machineEnds[maq]={date:today,min:0};
+    if(!machineEnds[maq]) machineEnds[maq]={date:'1970-01-01',min:0};
     if(!diaOcupadoPorMaq[maq]) diaOcupadoPorMaq[maq]={};
     const machineEnd=machineEnds[maq];
     const diaOcupado=diaOcupadoPorMaq[maq];
@@ -2960,7 +2991,8 @@ function computeGanttBlocks(projList){
       const fd=dateStr(skipToWorkingDay(new Date(run.fecha||today)));
       start=maxTime(maxTime({date:fd,min:0},df),machineEnd);
     } else {
-      start=maxTime(df,machineEnd);
+      const rf=run.fecha?{date:dateStr(new Date(run.fecha)),min:0}:{date:'1970-01-01',min:0};
+      start=maxTime(maxTime(rf,df),machineEnd);
     }
     let startDate=dateStr(skipToWorkingDay(new Date(start.date)));
 
@@ -4075,7 +4107,7 @@ function exportGanttExcel(){
   // colorear encabezado
   const hdrStyle={font:{bold:true},fill:{fgColor:{rgb:'1A1A1A'}},font2:{color:{rgb:'FFFFFF'}}};
   // colorear filas por máquina
-  const MC={'Compra MP':'F0B27A','Torno':'5DADE2','Centro':'58D68D','Soldadura':'EC7063','Ensamble':'BB8FCE','Trabajos de Terceros':'76D7C4'};
+  const MC={'Compra MP':'F0B27A','Torno':'5DADE2','Centro':'58D68D','Soldadura':'EC7063','Ensamble':'BB8FCE','Trabajos de Terceros':'76D7C4','MP Provista por Cliente':'F7DC6F'};
   rows.forEach((r,i)=>{
     if(i===0)return;
     const maq=r[3];
@@ -4117,7 +4149,7 @@ function exportGanttExcel(){
       });
     });
     const ws2=XLSX.utils.aoa_to_sheet(mapRows);
-    const MC2={'Compra MP':'F0B27A','Torno':'5DADE2','Centro':'58D68D','Soldadura':'EC7063','Ensamble':'BB8FCE','Trabajos de Terceros':'76D7C4'};
+    const MC2={'Compra MP':'F0B27A','Torno':'5DADE2','Centro':'58D68D','Soldadura':'EC7063','Ensamble':'BB8FCE','Trabajos de Terceros':'76D7C4','MP Provista por Cliente':'F7DC6F'};
     ws2['!cols']=[{wch:18},{wch:20},{wch:18},{wch:22},...workDays.map(()=>({wch:4}))];
     // colorear celdas activas con el color de la máquina
     mapRows.forEach((r,ri)=>{
@@ -4525,6 +4557,25 @@ function printOT(){
     listo:    document.getElementById('ot-chk-listo').checked,
   };
 
+  // Descripción de MP (desde componentes de los que depende esta OT) para que
+  // el operario sepa cómo viene la materia prima (Compra MP / MP Provista por Cliente)
+  const _otFound=_findOTByKey(_otEditNum);
+  const _linkedCompIds=_otFound?.ot?.runs?.length?_otFound.ot.runs.map(r=>r.compId):[_otCompId];
+  const mpDescs=[];
+  _linkedCompIds.forEach(cid=>{
+    const comp=components.find(c=>c.id===cid);
+    if(!comp)return;
+    (comp.deps||[]).forEach(depId=>{
+      const dep=components.find(c=>c.id===depId);
+      if(!dep)return;
+      if((dep.machine==='Compra MP'||dep.machine==='MP Provista por Cliente')&&dep.descripcionMP){
+        const txt=`${dep.name||'?'}: ${dep.descripcionMP}`;
+        if(!mpDescs.includes(txt))mpDescs.push(txt);
+      }
+    });
+  });
+  const mpDescTxt=mpDescs.join(' · ');
+
   function cb(checked){
     return `<span style="display:inline-block;width:14px;height:14px;border:2px solid #333;
       background:${checked?'#111':'#fff'};border-radius:2px;flex-shrink:0;vertical-align:middle;
@@ -4680,6 +4731,15 @@ function printOT(){
         </div>
       </div>
 
+      ${mpDescTxt?`
+      <!-- Fila MP: cómo viene la materia prima -->
+      <div class="frow" style="grid-template-columns:1fr">
+        <div class="cell" style="border-right:none">
+          <div class="cell-lbl">MATERIA PRIMA</div>
+          <div class="cell-val" style="font-size:11pt">${safe(mpDescTxt,200)}</div>
+        </div>
+      </div>`:''}
+
       <!-- Procesos requeridos -->
       <div style="border-top:1.5px solid #555">
         <div class="proc-title">PROCESOS REQUERIDOS</div>
@@ -4823,11 +4883,16 @@ function renderOTTabla(){
   });
   allOTs.sort((a,b)=>a.otNum-b.otNum);
 
+  const filterText=(document.getElementById('ot-filter-text')?.value||'').trim().toLowerCase();
+
   const filtered=allOTs.filter(ot=>{
-    if(_otFilter==='todas') return true;
-    if(_otFilter==='anuladas') return !!ot.anulada;
-    if(_otFilter==='completadas') return !!ot.completada && !ot.anulada;
-    if(_otFilter==='abiertas') return !ot.completada && !ot.anulada;
+    if(_otFilter==='anuladas'&&!ot.anulada) return false;
+    if(_otFilter==='completadas'&&!(ot.completada&&!ot.anulada)) return false;
+    if(_otFilter==='abiertas'&&!(!ot.completada&&!ot.anulada)) return false;
+    if(filterText){
+      const haystack=`${ot.otNum} ${ot.cliente||''} ${ot.descripcion||''} ${ot.pieza||''}`.toLowerCase();
+      if(!haystack.includes(filterText)) return false;
+    }
     return true;
   });
 
@@ -4988,7 +5053,7 @@ function exportOTExcel(){
     (p.ordenes||[]).forEach(ot=>allOTs.push({...ot,_projName:p.name}));
   });
   allOTs.sort((a,b)=>a.otNum-b.otNum);
-  const rows=[['OT N°','Fecha Pedido','Fecha Entrega','Cliente','Doc Asoc','Plano/Pieza',
+  const rows=[['OT N°','Estado','Fecha Pedido','Fecha Entrega','Cliente','Doc Asoc','Plano/Pieza',
     'Descripcion','Unidades','T. Run (min)','T. Prep (min)','T. Produc (min)','T. Total (min)',
     'P.U. Real','P.U. MO','% Desvío','P.U. MP','P.U. TT','P.U. Venta','% Desvío Final','OBS','Proyecto']];
   allOTs.forEach(ot=>{
@@ -4998,14 +5063,15 @@ function exportOTExcel(){
     const tTotal=tPrep+tProduc;
     const desvio=calcDesvio(ot.precioUnit,ot.puMO);
     const desvioFinal=calcDesvioFinal(ot.precioUnit,ot.puMP,ot.puTT,ot.precioVenta);
-    rows.push([ot.otNum,fmtDate(ot.fechaPedido),fmtDate(ot.fechaEntrega),
+    const estado=ot.anulada?'Anulada':(ot.completada?'Completada':'Abierta');
+    rows.push([ot.otNum,estado,fmtDate(ot.fechaPedido),fmtDate(ot.fechaEntrega),
       ot.cliente,ot.docAsoc,ot.pieza,ot.descripcion,ot.unidades,
       tRunMins||'',tPrep||'',tProduc||'',tTotal||'',
       ot.precioUnit||'',ot.puMO||'',desvio||'',ot.puMP||'',ot.puTT||'',ot.precioVenta||'',desvioFinal||'',ot.obs||'',ot._projName]);
   });
   const wb=XLSX.utils.book_new();
   const ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{wch:8},{wch:14},{wch:14},{wch:20},{wch:12},{wch:14},{wch:25},
+  ws['!cols']=[{wch:8},{wch:12},{wch:14},{wch:14},{wch:20},{wch:12},{wch:14},{wch:25},
     {wch:10},{wch:12},{wch:12},{wch:14},{wch:14},{wch:12},{wch:12},{wch:10},{wch:12},{wch:12},{wch:12},{wch:14},{wch:25},{wch:18}];
   XLSX.utils.book_append_sheet(wb,ws,'Órdenes de Trabajo');
   XLSX.writeFile(wb,`ordenes_trabajo_${dateStr(new Date())}.xlsx`);

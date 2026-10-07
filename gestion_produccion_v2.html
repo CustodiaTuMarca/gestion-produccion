@@ -496,6 +496,9 @@
       <button id="ot-filter-completadas" onclick="setOTFilter('completadas')" style="padding:4px 12px;font-size:11px;font-weight:600;border:none;cursor:pointer;background:#fff;color:#888;border-left:1px solid var(--gris-claro)">Completadas</button>
       <button id="ot-filter-anuladas"   onclick="setOTFilter('anuladas')"   style="padding:4px 12px;font-size:11px;font-weight:600;border:none;cursor:pointer;background:#fff;color:#888;border-left:1px solid var(--gris-claro)">Anuladas</button>
     </div>
+    <input id="ot-filter-text" type="text" placeholder="Buscar por N° de OT, cliente o descripción/pieza..."
+      style="flex:1;min-width:200px;font-size:12px"
+      oninput="renderOTTabla()">
     <span id="ot-filter-count" style="font-size:11px;color:var(--gris-oscuro)"></span>
   </div>
   <div id="ot-lista"></div>
