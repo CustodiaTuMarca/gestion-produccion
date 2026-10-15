@@ -1135,6 +1135,13 @@ function _renderEntregasConjuntos(p, hoy, unitsProd){
           <input value="${e.nota||''}" placeholder="Ej: Cliente confirma recepción, requiere embalaje especial..." style="width:100%" oninput="entregas.find(x=>x.id==${e.id}).nota=this.value">
         </div>
       </div>
+      ${(e.historial&&e.historial.length)?`
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid #eee">
+        <div style="font-size:10px;font-weight:700;color:#888;margin-bottom:4px">Historial de entregas</div>
+        ${e.historial.map(h=>`<div style="font-size:10px;color:#555;display:flex;justify-content:space-between;gap:6px">
+          <span>${fmtDate(h.fecha)}${h.remito?' · 📄 '+h.remito:''}</span><span style="font-weight:700">+${h.qty}</span>
+        </div>`).join('')}
+      </div>`:''}
     </div>`;
   }).join('');
 }
@@ -1200,23 +1207,41 @@ function _renderEntregasOC(p, hoy){
       const subCompleta=subEntregado>=subReq;
       const subPct=Math.min(100,Math.round(subEntregado/subReq*100));
       const subColor=subCompleta?'#1a7a4a':'#888';
+      const pendienteSub=Math.max(0,subReq-subEntregado);
+      const historialHtml=(subEnt.historial&&subEnt.historial.length)?`
+        <div style="margin-top:6px;padding-top:6px;border-top:1px solid #eee">
+          <div style="font-size:9px;font-weight:700;color:#aaa;margin-bottom:3px">Historial de entregas</div>
+          ${subEnt.historial.map(h=>`<div style="font-size:10px;color:#555;display:flex;justify-content:space-between;gap:6px">
+            <span>${fmtDate(h.fecha)}${h.remito?' · 📄 '+h.remito:''}</span><span style="font-weight:700">+${h.qty}</span>
+          </div>`).join('')}
+        </div>`:'';
 
-      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:${subCompleta?'#f0faf4':'#fafaf8'};border-radius:6px;margin-bottom:4px;border-left:3px solid ${subColor}">
-        <div style="flex:1;min-width:0">
-          <div style="font-size:11px;font-weight:600;color:var(--negro)">${sub.name}</div>
-          <div style="display:flex;align-items:center;gap:6px;margin-top:3px">
-            <div style="height:4px;width:80px;background:var(--gris-claro);border-radius:4px">
-              <div style="height:4px;width:${subPct}%;background:${subColor};border-radius:4px"></div>
+      return `<div style="padding:6px 10px;background:${subCompleta?'#f0faf4':'#fafaf8'};border-radius:6px;margin-bottom:4px;border-left:3px solid ${subColor}">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:11px;font-weight:600;color:var(--negro)">${sub.name}</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:3px">
+              <div style="height:4px;width:80px;background:var(--gris-claro);border-radius:4px">
+                <div style="height:4px;width:${subPct}%;background:${subColor};border-radius:4px"></div>
+              </div>
+              <span style="font-size:10px;color:#888">${subEntregado} / ${subReq} entregados</span>
+              ${subCompleta?'<span style="font-size:9px;background:#e8f8ef;color:#1a7a4a;padding:1px 5px;border-radius:4px;font-weight:700">✓ Completo</span>':''}
             </div>
-            <span style="font-size:10px;color:#888">${subEntregado} / ${subReq} entregados</span>
-            ${subCompleta?'<span style="font-size:9px;background:#e8f8ef;color:#1a7a4a;padding:1px 5px;border-radius:4px;font-weight:700">✓ Completo</span>':''}
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+            <input type="number" value="${subEntregado}" min="0" max="${subReq}" style="width:50px;font-size:11px;text-align:center"
+              onchange="registrarEntregaSub(${p.id},${oc.id},${sub.id},+this.value)">
+            <span style="font-size:10px;color:#aaa">/ ${subReq}</span>
           </div>
         </div>
-        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
-          <input type="number" value="${subEntregado}" min="0" max="${subReq}" style="width:50px;font-size:11px;text-align:center"
-            onchange="registrarEntregaSub(${p.id},${oc.id},${sub.id},+this.value)">
-          <span style="font-size:10px;color:#aaa">/ ${subReq}</span>
-        </div>
+        ${!subCompleta?`<div style="display:flex;align-items:center;gap:4px;margin-top:6px;padding-top:6px;border-top:1px solid #eee;flex-wrap:wrap">
+          <span style="font-size:9px;color:#888;font-weight:700">+ Nueva entrega:</span>
+          <input type="number" id="ent-add-qty-${subEnt.id}" value="${pendienteSub}" min="1" max="${pendienteSub}" style="width:48px;font-size:10px;text-align:center" title="Cantidad">
+          <input type="date" id="ent-add-fecha-${subEnt.id}" value="${dateStr(today)}" style="font-size:10px;padding:2px 4px" title="Fecha de entrega">
+          <input type="text" id="ent-add-remito-${subEnt.id}" placeholder="N° remito/factura (opcional)" style="font-size:10px;padding:2px 4px;flex:1;min-width:100px">
+          <button onclick="agregarEntregaSubHistorial(${p.id},${oc.id},${sub.id})" style="font-size:10px;font-weight:700;padding:3px 8px;border:none;border-radius:5px;cursor:pointer;background:#2980b9;color:#fff">Registrar</button>
+        </div>`:''}
+        ${historialHtml}
       </div>`;
     }).join('');
 
@@ -1270,6 +1295,40 @@ function registrarEntregaSub(projId, ocId, subId, qty){
   ent.entregado=Math.max(0,qty);
   const sub=p.subconjuntos.find(s=>s.id===subId);
   addLog('carga',`📦 Entrega parcial: ${sub?.name||'?'} · ${qty} unid.`,`OC ${p.ordenesCompra.find(o=>o.id===ocId)?.numero||''}` ,'');
+  scheduleSync();
+  renderEntregas();
+}
+
+// Agrega una tanda de entrega al historial de un ítem (modo OC), sumando al
+// total acumulado existente (sin pisarlo, a diferencia del input numérico
+// de arriba que fija el valor absoluto). Permite rastrear fecha + remito
+// cuando un ítem se entrega en varias veces.
+function agregarEntregaSubHistorial(projId, ocId, subId){
+  const p=projects.find(x=>x.id===projId);
+  if(!p)return;
+  const oc=p.ordenesCompra.find(o=>o.id===ocId);
+  const sub=p.subconjuntos.find(s=>s.id===subId);
+  if(!oc||!sub)return;
+  const subReq=(sub.qty||1)*(oc.qty||1);
+  let ent=p.entregas.find(e=>e.ocId===ocId&&e.subId===subId);
+  if(!ent){ent={id:++p._entId,ocId,subId,name:sub.name,deadline:'',qty:subReq,nota:'',entregado:0};p.entregas.push(ent);}
+
+  const qtyAdd=parseInt(document.getElementById(`ent-add-qty-${ent.id}`)?.value)||0;
+  if(qtyAdd<=0)return;
+  const fecha=document.getElementById(`ent-add-fecha-${ent.id}`)?.value||dateStr(today);
+  const remito=(document.getElementById(`ent-add-remito-${ent.id}`)?.value||'').trim();
+
+  const prevEntregado=ent.entregado||0;
+  const nuevoEntregado=Math.min(subReq,prevEntregado+qtyAdd);
+  const delta=nuevoEntregado-prevEntregado;
+  if(delta<=0)return;
+  ent.entregado=nuevoEntregado;
+  if(!ent.historial)ent.historial=[];
+  ent.historial.push({qty:delta,fecha,remito});
+
+  addLog('carga',
+    `📦 Entrega parcial: ${sub.name||'?'} · +${delta} unid.`,
+    `OC ${oc.numero||''} · ${fmtDate(fecha)}${remito?' · Remito '+remito:''}`,'');
   scheduleSync();
   renderEntregas();
 }
@@ -2741,6 +2800,8 @@ function openEntregarModal(conjId){
   document.getElementById('entregar-disp').value=ca.qty;
   document.getElementById('entregar-qty').value=1;
   document.getElementById('entregar-qty').max=ca.qty;
+  document.getElementById('entregar-fecha').value=dateStr(today);
+  document.getElementById('entregar-remito').value='';
   document.getElementById('entregar-nota').value='';
   document.getElementById('entregar-warn').textContent='';
   document.getElementById('entregar-dest').textContent=`Depósito origen: 📍 ${ca.deposito}`;
@@ -2795,6 +2856,8 @@ function doRegistrarEntrega(){
   if(!ca)return;
   const qty=parseInt(document.getElementById('entregar-qty').value)||0;
   const nota=document.getElementById('entregar-nota').value.trim();
+  const fecha=document.getElementById('entregar-fecha').value||dateStr(today);
+  const remito=document.getElementById('entregar-remito').value.trim();
   if(qty<=0||qty>ca.qty){alert('Cantidad inválida.');return;}
 
   // descontar del conjArmado (puede quedar cantidad remanente)
@@ -2813,13 +2876,16 @@ function doRegistrarEntrega(){
     if(pendiente<=0)continue;
     const tomar=Math.min(pendiente,rem);
     e.entregado=(e.entregado||0)+tomar;
+    if(!e.historial)e.historial=[];
+    e.historial.push({qty:tomar,fecha,remito});
     rem-=tomar;
     impactos.push(`${e.name||'Entrega'} +${tomar}`);
   }
 
   addLog('conj',
     `📦 ${qty} conjunto${qty!==1?'s':''} entregado${qty!==1?'s':''}`,
-    `Imputado a: ${impactos.join(' · ')}${rem>0?' ('+rem+' sin entrega asignada)':''}`,
+    `Imputado a: ${impactos.join(' · ')}${rem>0?' ('+rem+' sin entrega asignada)':''}`+
+    ` · ${fmtDate(fecha)}${remito?' · Remito '+remito:''}`,
     nota);
 
   closeEntregarModal();
