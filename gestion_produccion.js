@@ -1664,7 +1664,62 @@ function addStockDep(compId){
     `${comp?.name||'?'} · +${qty} unid. → 📍 ${dep}`,
     `Subconj: ${sub?.name||'?'}${runInfo}`,
     nota);
+  if(comp)_autoArmarOCItem(comp,dep);
   renderStock();
+}
+
+// ── Auto-armado de ítems en proyectos modo OC ──────────────────
+// Al cargar stock (o registrar fabricación, mismo flujo de addStockDep),
+// si ya hay stock suficiente de TODOS los componentes del ítem en el
+// depósito donde se acaba de cargar, se arma automáticamente la mayor
+// cantidad de unidades completas posible — igual que "Armar subconjunto"
+// pero sin intervención manual. Tope: lo que falte para cubrir la OC.
+function _autoArmarOCItem(comp,dep){
+  const p=currentProject();
+  if((p.mode||'conjuntos')!=='oc')return;
+  const sub=subconjuntos.find(s=>s.id===comp.subId);
+  if(!sub||!sub.ocId)return;
+  const oc=(p.ordenesCompra||[]).find(o=>o.id===sub.ocId);
+  if(!oc||_ocCompleta(p,oc))return;
+
+  const subReq=(sub.qty||1)*(oc.qty||1);
+  const restante=subReq-totalSubArmados(sub.id);
+  if(restante<=0)return;
+
+  const subComps=components.filter(c=>c.subId===sub.id);
+  if(!subComps.length)return;
+  const maxUnits=Math.min(...subComps.map(c=>{
+    const need=c.qty||1;
+    const inDep=(stockDep[c.id]||{})[dep]||0;
+    return Math.floor(inDep/need);
+  }));
+  const armarQty=Math.min(maxUnits,restante);
+  if(armarQty<1)return;
+
+  subComps.forEach(c=>{
+    const need=(c.qty||1)*armarQty;
+    if(!stockDep[c.id])stockDep[c.id]={};
+    stockDep[c.id][dep]=(stockDep[c.id][dep]||0)-need;
+    if(stockDep[c.id][dep]<0)stockDep[c.id][dep]=0;
+  });
+  if(!subArmados[sub.id])subArmados[sub.id]=[];
+  subArmados[sub.id].push({qty:armarQty,deposito:dep});
+  addLog('sub',
+    `🤖 ${sub.name} · ${armarQty} unid. armadas automáticamente`,
+    `Stock suficiente detectado en 📍 ${dep} tras cargar stock`,'');
+  showToast(`🔧 Armado automático: ${armarQty} × ${sub.name}`);
+}
+
+function showToast(msg){
+  const t=document.createElement('div');
+  t.textContent=msg;
+  t.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);'+
+    'background:var(--negro);color:var(--amarillo);font-size:12px;font-weight:600;'+
+    'padding:8px 16px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.25);'+
+    'z-index:99999;opacity:0;transition:opacity .2s;pointer-events:none';
+  document.body.appendChild(t);
+  requestAnimationFrame(()=>t.style.opacity='1');
+  setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),250);},2500);
 }
 
 // ── Modal Runs ────────────────────────────────────────────────
