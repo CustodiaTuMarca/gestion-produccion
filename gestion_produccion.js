@@ -1833,7 +1833,9 @@ function showToast(msg){
 }
 
 // ── Modal Runs ────────────────────────────────────────────────
-let _runId=1000;
+// _runId es un accessor global (ver Object.defineProperty más arriba) que
+// apunta a currentProject()._runId — NO declarar `let _runId` aquí: tapa
+// ese accessor y hace que la numeración de runs no persista por proyecto.
 let _runMode='cola'; // 'cola' | 'fecha_fija' | 'despues' | 'antes'
 
 function setRunMode(mode){
