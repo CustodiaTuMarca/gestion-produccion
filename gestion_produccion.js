@@ -2338,6 +2338,7 @@ function doAddRun(){
   } else if(c.machine!=='Trabajos de Terceros'&&c.machine!=='MP Provista por Cliente'){
     setTimeout(()=>openOT(compId,run.id),200);
   }
+  closeRunModal();
 }
 
 // ── Modal Gestión de stock ────────────────────────────────────
