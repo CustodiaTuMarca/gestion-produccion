@@ -1374,12 +1374,35 @@ function renderStock(){
 
   if(stockView==='item'){
     // ── Vista por ítem ──
+    // Ítems ya entregados por completo (solo aplica en modo OC: es donde existe
+    // tracking de entregado por ítem vía p.entregas con ocId+subId; en modo
+    // conjuntos la entrega se registra a nivel de conjunto completo, no por ítem)
+    const mostrarEntregados=p._mostrarEntregados||false;
+    const esItemEntregado=sub=>{
+      if(!isOC||!sub.ocId)return false;
+      const oc=(p.ordenesCompra||[]).find(o=>o.id===sub.ocId);
+      if(!oc||_ocCompleta(p,oc))return false; // ya cubierto por el filtro de OCs completadas
+      const subReq=(sub.qty||1)*(oc.qty||1);
+      const entregado=p.entregas.find(e=>e.ocId===sub.ocId&&e.subId===sub.id)?.entregado||0;
+      return subReq>0&&entregado>=subReq;
+    };
+    const entregadosCount=isOC?subconjuntos.filter(esItemEntregado).length:0;
+    if(entregadosCount>0){
+      bodyHtml+=`<div style="margin-bottom:8px">
+        <button onclick="currentProject()._mostrarEntregados=!currentProject()._mostrarEntregados;renderStock();"
+          style="font-size:11px;padding:3px 10px;border:1px solid var(--gris-medio);border-radius:6px;cursor:pointer;background:${mostrarEntregados?'var(--negro)':'#fff'};color:${mostrarEntregados?'var(--amarillo)':'var(--gris-oscuro)'}">
+          ${mostrarEntregados?'▲ Ocultar':'▼ Mostrar'} entregados (${entregadosCount})
+        </button>
+      </div>`;
+    }
     subconjuntos.filter(sub=>{
       // Ocultar subconjuntos de OCs completadas
       if(sub.ocId){
         const oc=(p.ordenesCompra||[]).find(o=>o.id===sub.ocId);
         if(oc&&_ocCompleta(p,oc))return false;
       }
+      // Ocultar ítems ya entregados por completo, salvo que el toggle esté activo
+      if(!mostrarEntregados&&esItemEntregado(sub))return false;
       return true;
     }).forEach((sub,si)=>{
       const subComps=components.filter(c=>c.subId===sub.id);
