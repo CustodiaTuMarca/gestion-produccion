@@ -2831,8 +2831,9 @@ function computeGanttBlocks(projList){
   // se arman en la UI contra componentes del propio proyecto y los IDs
   // de componente no son únicos entre proyectos, así que buscar cruzado
   // podría emparejar por error componentes de proyectos distintos.
-  // Si no hay deps o no hay datos para estimarlas, el piso es "hoy"
-  // (nunca null, nunca bloquea el run).
+  // Si no hay deps (o no hay datos para estimarlas) el piso es "sin
+  // restricción" (fecha centinela muy antigua) — nunca "hoy": el
+  // scheduler no debe forzar ningún run a partir de la fecha actual.
   function depsFloor(comp,proj){
     let floor=null;
     for(const depId of (comp.deps||[])){
@@ -2857,7 +2858,7 @@ function computeGanttBlocks(projList){
         });
       }
     }
-    return floor||{date:today,min:0};
+    return floor||{date:'1970-01-01',min:0};
   }
 
   // ── GRUPO B: procesos externos — sin disponibilidad lineal, pueden superponerse ──
@@ -2890,96 +2891,100 @@ function computeGanttBlocks(projList){
     });
   });
 
-  // ── GRUPO A: máquinas serie, en orden topológico de dependencias ──
-  // Las máquinas de Grupo A pueden depender entre sí (p.ej. Centro depende
-  // de Torno). Si se procesaran agrupadas por máquina en orden arbitrario,
-  // la máquina que se procesa primero no ve el compEnd de una máquina que
-  // todavía no fue procesada, y depsFloor cae en una estimación ingenua que
-  // ignora la cola real de esa máquina. Para resolverlo, se ordenan los
-  // COMPONENTES (no las máquinas) topológicamente: un componente con deps
-  // siempre se procesa después de todos sus deps, sin importar en qué
-  // máquina esté cada uno. Dentro de un mismo nivel topológico (sin relación
-  // de dependencia entre sí) se respeta run.order. Los ciclos de deps se
-  // ignoran (se agregan igual, sin bloquear el resto).
-  //
-  // El cursor de cada máquina (machineEnd/diaOcupado) es independiente por
-  // máquina y se actualiza en el orden en que se van procesando los runs de
-  // esa máquina según el orden topológico global — así nunca se superponen
-  // runs de una misma máquina.
-  function topoOrdenGrupoA(items){
-    // nodo = "projId:compId" — clave única entre proyectos (evita colisión
-    // de IDs de componente entre proyectos distintos)
-    const nodos={};
-    items.forEach(({run,comp,proj})=>{
-      const key=`${proj.id}:${comp.id}`;
-      const order=run.order??99999;
-      if(!nodos[key]) nodos[key]={key,comp,proj,minOrder:order};
-      else if(order<nodos[key].minOrder) nodos[key].minOrder=order;
-    });
-    const keys=Object.keys(nodos);
-    const nodeSet=new Set(keys);
+  // ── GRUPO A: máquinas serie ──
+  // La cola de cada máquina es SIEMPRE los runs de esa máquina ordenados por
+  // run.order — ese orden nunca lo altera una dependencia; solo cambia cuando
+  // el usuario lo edita explícitamente (antes de/después de/cola, que ya
+  // recalculan run.order aguas arriba). El sort topológico se usa ÚNICAMENTE
+  // para decidir en qué momento se "visita" cada run cuando hay dependencias
+  // entre máquinas distintas (p.ej. Centro depende de Torno), de forma que
+  // compEnd de la dependencia ya esté calculado con la cola real de su
+  // máquina al momento de resolver el piso del dependiente. Para que el topo
+  // sort NUNCA reordene una misma máquina, el grafo incluye una arista
+  // explícita entre cada run y el siguiente en la cola de su propia máquina
+  // (según run.order): Kahn's algorithm respeta esas aristas por
+  // construcción, así que dos runs de la misma máquina siempre se procesan
+  // en su orden de cola, sin importar en qué momento entren otras máquinas.
+  function ordenarGrupoA(items){
+    // nodo = "projId:compId:runId" — clave única entre proyectos (los IDs
+    // de componente/run no son únicos entre proyectos distintos)
+    const nodeKey=({run,comp,proj})=>`${proj.id}:${comp.id}:${run.id}`;
+    const byKey={};
+    items.forEach(it=>{ byKey[nodeKey(it)]=it; });
+    const keys=Object.keys(byKey);
 
-    // adj[dep] = [nodos que dependen de dep] · inDegree[nodo] = cant. de deps propias
     const adj={}, inDegree={};
     keys.forEach(k=>{ adj[k]=[]; inDegree[k]=0; });
-    keys.forEach(k=>{
-      const {comp,proj}=nodos[k];
+    function addEdge(a,b){
+      if(a===b||!byKey[a]||!byKey[b]) return;
+      adj[a].push(b);
+      inDegree[b]++;
+    }
+
+    // 1) Cadena de cola por máquina (global entre proyectos): cada run solo
+    // puede procesarse después del run anterior de su misma máquina.
+    const porMaquina={};
+    items.forEach(it=>{
+      const maq=it.comp.machine;
+      if(!porMaquina[maq]) porMaquina[maq]=[];
+      porMaquina[maq].push(it);
+    });
+    Object.values(porMaquina).forEach(lista=>{
+      lista.sort((a,b)=>(a.run.order??99999)-(b.run.order??99999));
+      for(let i=1;i<lista.length;i++) addEdge(nodeKey(lista[i-1]),nodeKey(lista[i]));
+    });
+
+    // 2) Dependencias cross-máquina: TODOS los runs del componente dependencia
+    // deben procesarse antes que CUALQUIER run del componente dependiente,
+    // así compEnd queda con el fin real (máximo) de la dependencia.
+    const porComponente={};
+    items.forEach(it=>{
+      const ck=`${it.proj.id}:${it.comp.id}`;
+      if(!porComponente[ck]) porComponente[ck]=[];
+      porComponente[ck].push(it);
+    });
+    items.forEach(it=>{
+      const{comp,proj}=it;
       (comp.deps||[]).forEach(depId=>{
-        const depKey=`${proj.id}:${depId}`;
-        if(depKey!==k && nodeSet.has(depKey)){
-          adj[depKey].push(k);
-          inDegree[k]++;
-        }
+        const depItems=porComponente[`${proj.id}:${depId}`];
+        if(!depItems) return; // dependencia no está en Grupo A (ya se resolvió en Grupo B)
+        depItems.forEach(depIt=>addEdge(nodeKey(depIt),nodeKey(it)));
       });
     });
 
-    // Kahn's algorithm: los nodos sin deps pendientes van primero;
-    // entre varios disponibles a la vez, se ordena por run.order (minOrder)
+    // Kahn's algorithm — entre varios nodos listos a la vez se desempata por
+    // run.order. Los ciclos (deps circulares) se agregan igual al final, por
+    // run.order, para no bloquear el resto del scheduler.
+    const ordenDe=k=>byKey[k].run.order??99999;
     const orden=[];
     const visitado=new Set();
     let frontera=keys.filter(k=>inDegree[k]===0);
     while(frontera.length){
-      frontera.sort((a,b)=>nodos[a].minOrder-nodos[b].minOrder);
+      frontera.sort((a,b)=>ordenDe(a)-ordenDe(b));
       const k=frontera.shift();
       if(visitado.has(k)) continue;
       visitado.add(k);
       orden.push(k);
-      adj[k].forEach(dep=>{
-        inDegree[dep]--;
-        if(inDegree[dep]===0) frontera.push(dep);
+      adj[k].forEach(sig=>{
+        inDegree[sig]--;
+        if(inDegree[sig]===0) frontera.push(sig);
       });
     }
-    // Ciclos: nodos que nunca llegaron a inDegree 0 — se agregan igual,
-    // ordenados por run.order, para no bloquear el resto del scheduler
     keys.filter(k=>!visitado.has(k))
-      .sort((a,b)=>nodos[a].minOrder-nodos[b].minOrder)
+      .sort((a,b)=>ordenDe(a)-ordenDe(b))
       .forEach(k=>orden.push(k));
 
-    return orden;
+    return orden.map(k=>byKey[k]);
   }
 
-  const itemsPorNodo={};
-  grupoA.forEach(item=>{
-    const key=`${item.proj.id}:${item.comp.id}`;
-    if(!itemsPorNodo[key]) itemsPorNodo[key]=[];
-    itemsPorNodo[key].push(item);
-  });
-  Object.values(itemsPorNodo).forEach(items=>{
-    items.sort((a,b)=>(a.run.order??99999)-(b.run.order??99999));
-  });
+  const itemsOrdenados=ordenarGrupoA(grupoA);
 
-  const ordenTopo=topoOrdenGrupoA(grupoA);
-  const itemsOrdenados=[];
-  ordenTopo.forEach(key=>{
-    (itemsPorNodo[key]||[]).forEach(item=>itemsOrdenados.push(item));
-  });
-
-  const machineEnds={};    // machine -> {date,min}, cursor por máquina
-  const diaOcupadoPorMaq={}; // machine -> {date: cantidad de runs}
+  const machineEnds={};     // machine -> {date,min,durMins} del último run agendado
+  const diaOcupadoPorMaq={}; // machine -> {date: cantidad de runs} — tope de 2 por día
 
   itemsOrdenados.forEach(({run,comp,proj})=>{
     const maq=comp.machine;
-    if(!machineEnds[maq]) machineEnds[maq]={date:'1970-01-01',min:0};
+    if(!machineEnds[maq]) machineEnds[maq]={date:'1970-01-01',min:0,durMins:0};
     if(!diaOcupadoPorMaq[maq]) diaOcupadoPorMaq[maq]={};
     const machineEnd=machineEnds[maq];
     const diaOcupado=diaOcupadoPorMaq[maq];
@@ -2988,26 +2993,39 @@ function computeGanttBlocks(projList){
 
     let start;
     if(run.fechaFija){
+      // Fecha fija: siempre exacta (pasado o futuro), solo depsFloor como piso mínimo
       const fd=dateStr(skipToWorkingDay(new Date(run.fecha||today)));
-      start=maxTime(maxTime({date:fd,min:0},df),machineEnd);
+      start=maxTime({date:fd,min:0},df);
     } else {
-      const rf=run.fecha?{date:dateStr(new Date(run.fecha)),min:0}:{date:'1970-01-01',min:0};
-      start=maxTime(maxTime(rf,df),machineEnd);
+      // Cola: fin del run anterior de la máquina vs. fin de dependencias. Se
+      // suma run.fecha solo como ancla de un run que todavía no tiene ningún
+      // piso real (primero de una cola vacía, sin deps) — nunca "hoy": jamás
+      // se recalcula en base a la fecha actual, solo en base a la cola real
+      // y las dependencias.
+      const fr=dateStr(skipToWorkingDay(new Date(run.fecha||today)));
+      start=maxTime(maxTime(machineEnd,df),{date:fr,min:0});
     }
     let startDate=dateStr(skipToWorkingDay(new Date(start.date)));
 
-    // Máximo 2 runs por día calendario en esta máquina
+    const durMins=Math.max(1,(comp.mins||0)*(run.qty||1));
+
+    // Transición mismo día con el run anterior de la máquina: solo permitida
+    // si alguno de los dos dura menos de 4hs (240min); si ambos duran 4hs o
+    // más, este pasa al día hábil siguiente.
+    if(startDate===machineEnd.date && machineEnd.durMins>=240 && durMins>=240){
+      startDate=dateStr(nextWorkingDay(new Date(startDate)));
+    }
+
+    // Tope de 2 runs compartiendo un mismo día calendario en esta máquina
     while((diaOcupado[startDate]||0)>=2){
       startDate=dateStr(nextWorkingDay(new Date(startDate)));
     }
 
-    const durMins=Math.max(1,(comp.mins||0)*(run.qty||1));
     const res=addWorkingMins(startDate,0,durMins);
     const end={date:res.date,min:res.minInDay};
 
     diaOcupado[startDate]=(diaOcupado[startDate]||0)+1;
-    if(end.date!==startDate)
-      diaOcupado[end.date]=(diaOcupado[end.date]||0)+1;
+    if(end.date!==startDate) diaOcupado[end.date]=(diaOcupado[end.date]||0)+1;
 
     blocks.push({
       compId:comp.id,runId:run.id,projId:proj.id,
@@ -3017,7 +3035,9 @@ function computeGanttBlocks(projList){
       fechaFija:!!run.fechaFija,order:run.order
     });
 
-    machineEnds[maq]=end;
+    // Avance monotónico: nunca retrocede el cursor (una fecha fija que cae
+    // antes del cursor actual no debe "liberar" la máquina hacia atrás)
+    if(cmpTime(end,machineEnd)>0) machineEnds[maq]={...end,durMins};
     setEnd(proj.id,comp.id,end);
   });
 
@@ -4273,28 +4293,25 @@ let _otEditNum=null; // null = nueva OT, number = editando existente
 
 function getOrdenes(){return currentProject().ordenes||[];}
 
-// Buscar OT activa (no anulada) para un run — busca en lista runs[] y en compId/runId legacy
+// Buscar OT activa (no anulada) para un run — busca en lista runs[] y en compId/runId legacy.
+// IMPORTANTE: acotado al proyecto activo. compId/runId son contadores que reinician en
+// cada proyecto (_cpId arranca en 30, _runId en 1000), así que buscar en projects[] completo
+// puede matchear por casualidad un componente/run de OTRO proyecto con el mismo id numérico.
 function findOTForRun(compId,runId){
-  for(const p of projects){
-    const ot=(p.ordenes||[]).find(o=>{
-      if(o.anulada)return false;
-      if(o.runs&&o.runs.length>0)return o.runs.some(r=>r.compId===compId&&r.runId===runId);
-      return o.compId===compId&&o.runId===runId;
-    });
-    if(ot)return ot;
-  }
-  return null;
+  const ot=(currentProject().ordenes||[]).find(o=>{
+    if(o.anulada)return false;
+    if(o.runs&&o.runs.length>0)return o.runs.some(r=>r.compId===compId&&r.runId===runId);
+    return o.compId===compId&&o.runId===runId;
+  });
+  return ot||null;
 }
-// Buscar CUALQUIER OT para un run (incluyendo anuladas) para tabla
+// Buscar CUALQUIER OT para un run (incluyendo anuladas) para tabla — también acotado al proyecto activo
 function findAnyOTForRun(compId,runId){
-  for(const p of projects){
-    const ot=(p.ordenes||[]).find(o=>{
-      if(o.runs&&o.runs.length>0)return o.runs.some(r=>r.compId===compId&&r.runId===runId);
-      return o.compId===compId&&o.runId===runId;
-    });
-    if(ot)return ot;
-  }
-  return null;
+  const ot=(currentProject().ordenes||[]).find(o=>{
+    if(o.runs&&o.runs.length>0)return o.runs.some(r=>r.compId===compId&&r.runId===runId);
+    return o.compId===compId&&o.runId===runId;
+  });
+  return ot||null;
 }
 
 function _setOTNumeroEditable(editable){
@@ -4319,9 +4336,6 @@ function openOT(compId,runId){
   // comprobar si ya existe OT para este run
   const existing=findOTForRun(compId,runId);
 
-  // Buscar todas las OTs activas del proyecto actual para poder reutilizar
-  const allActiveOTs=(currentProject().ordenes||[]).filter(o=>!o.anulada);
-
   if(existing){
     _otEditNum=existing._uid||existing.otNum;
     loadOTFields(existing);
@@ -4329,35 +4343,14 @@ function openOT(compId,runId){
     document.getElementById('ot-numero').textContent=existing.otNum;
     _setOTNumeroEditable(false);
     // Mostrar selector para vincular a OT diferente
-    _showOTLinkSelector(compId,runId,allActiveOTs,existing._uid||existing.otNum);
+    _showOTLinkSelector(compId,runId,existing._uid||existing.otNum);
   } else {
     _otEditNum=null;
     clearOTFields();
-    const sub=subconjuntos.find(s=>s.id===comp.subId);
-    document.getElementById('ot-descripcion').value=comp.name||'';
-    document.getElementById('ot-pieza').value=sub?.name||'';
-    document.getElementById('ot-unid-val').textContent=run.qty||1;
-    // Calcular fechas reales del run desde el scheduler
-    const{blocks}=computeGanttBlocks(projects);
-    const block=blocks.find(b=>b.compId===compId&&b.runId===runId);
-    if(block){
-      document.getElementById('ot-fecha-pedido').value=block.start.date;
-      document.getElementById('ot-fecha-entrega').value=block.end.date;
-    } else {
-      document.getElementById('ot-fecha-pedido').value=run.fecha||'';
-    }
-    // H. PROC. editable — sugerir duración calculada
-    const durMins=isMaquinaDias(comp.machine)?(comp.dias||1)*MINS_PER_DAY:(comp.mins||0)*(run.qty||1);
-    document.getElementById('ot-hproc').value=fmtDur(durMins);
-    // pre-tildar proceso
-    const chkMap={'Torno':'ot-chk-torno','Centro':'ot-chk-centro',
-      'Soldadura':'ot-chk-soldadura','Ensamble':'ot-chk-centro',
-      'Compra MP':'ot-chk-corte'};
-    if(chkMap[comp.machine])document.getElementById(chkMap[comp.machine]).checked=true;
-    document.getElementById('ot-numero-input').value='';
+    _fillOTDefaultsFromComponent(compId,runId);
     _setOTNumeroEditable(true);
     // Mostrar selector para vincular a OT existente
-    _showOTLinkSelector(compId,runId,allActiveOTs,null);
+    _showOTLinkSelector(compId,runId,null);
   }
 
   // generar filas de producción vacías
@@ -4365,25 +4358,84 @@ function openOT(compId,runId){
   document.getElementById('modal-ot').style.display='flex';
 }
 
-// Muestra selector para vincular/desvincular OT existente
-function _showOTLinkSelector(compId,runId,allOTs,currentOtNum){
+// Precarga los campos de la OT con los datos del componente/run — se usa tanto al
+// abrir el modal para un componente sin OT como al volver a elegir "— Nueva OT —"
+// desde el selector de vinculación, para no perder los valores sugeridos.
+// Próximo N° de OT correlativo — mismo criterio que saveOT() al crear una OT nueva sin número manual
+function _nextOtNum(){
+  const liveMax=projects.reduce((mx,p)=>Math.max(mx,...(p.ordenes||[])
+    .filter(o=>o.fechaPedido||o.cliente||o.descripcion||o.pieza)
+    .map(o=>o.otNum||0)),0);
+  return Math.max(274,liveMax+1);
+}
+
+function _fillOTDefaultsFromComponent(compId,runId){
+  const comp=components.find(c=>c.id===compId);
+  const run=comp?.runs?.find(r=>r.id===runId);
+  if(!comp||!run)return;
+  const sub=subconjuntos.find(s=>s.id===comp.subId);
+  document.getElementById('ot-numero-input').value=_nextOtNum();
+  document.getElementById('ot-fecha-pedido').value=dateStr(new Date());
+  document.getElementById('ot-fecha-entrega').value='';
+  document.getElementById('ot-cliente').value='';
+  document.getElementById('ot-doc-asoc').value='';
+  document.getElementById('ot-descripcion').value=comp.name||'';
+  document.getElementById('ot-pieza').value=sub?.name||'';
+  document.getElementById('ot-unid-val').textContent=run.qty||1;
+  // H. PROC. editable — sugerir duración calculada
+  const durMins=isMaquinaDias(comp.machine)?(comp.dias||1)*MINS_PER_DAY:(comp.mins||0)*(run.qty||1);
+  document.getElementById('ot-hproc').value=fmtDur(durMins);
+  // pre-tildar SOLO el proceso del componente actual
+  const chkMap={'Torno':'ot-chk-torno','Centro':'ot-chk-centro',
+    'Soldadura':'ot-chk-soldadura','Ensamble':'ot-chk-centro',
+    'Compra MP':'ot-chk-corte'};
+  if(chkMap[comp.machine])document.getElementById(chkMap[comp.machine]).checked=true;
+}
+
+// Muestra selector para vincular/desvincular OT existente.
+// Sólo lista OTs del PROYECTO ACTIVO (se recalcula siempre desde currentProject(),
+// sin confiar en lo que el llamador tenga a mano), agrupando primero las OTs cuyo
+// componente vinculado comparte la misma máquina/proceso que el componente actual
+// (ej: Torno), y dejando el resto del proyecto en un grupo aparte sin ocultarlas.
+function _showOTLinkSelector(compId,runId,currentOtNum){
   const wrap=document.getElementById('ot-link-wrap');
   if(!wrap)return;
-  if(allOTs.length===0){wrap.style.display='none';return;}
+  const projOTs=(currentProject().ordenes||[]).filter(o=>!o.anulada);
+  if(projOTs.length===0){wrap.style.display='none';return;}
   wrap.style.display='block';
   const sel=document.getElementById('ot-link-sel');
-  sel.innerHTML=`<option value="">— Nueva OT —</option>`+
-    allOTs.map(o=>{const k=o._uid||o.otNum;return`<option value="${k}" ${k===currentOtNum?'selected':''}>
+
+  const comp=components.find(c=>c.id===compId);
+  const maq=comp?.machine;
+  function otMachine(o){
+    const firstRun=(o.runs&&o.runs[0])||{compId:o.compId,runId:o.runId};
+    const c=components.find(x=>x.id===firstRun.compId);
+    return c?.machine;
+  }
+  const related=maq?projOTs.filter(o=>otMachine(o)===maq):[];
+  const others=maq?projOTs.filter(o=>otMachine(o)!==maq):projOTs;
+
+  const opt=o=>{const k=o._uid||o.otNum;return`<option value="${k}" ${k===currentOtNum?'selected':''}>
       OT N°${o.otNum} · ${o.descripcion||o.pieza||'Sin descripción'}
-    </option>`;}).join('');
+    </option>`;};
+
+  let html=`<option value="" ${!currentOtNum?'selected':''}>— Nueva OT —</option>`;
+  if(maq&&related.length>0&&others.length>0){
+    html+=`<optgroup label="${MICON[maq]||''} ${maq}">${related.map(opt).join('')}</optgroup>`;
+    html+=`<optgroup label="Otros procesos">${others.map(opt).join('')}</optgroup>`;
+  } else {
+    html+=[...related,...others].map(opt).join('');
+  }
+  sel.innerHTML=html;
   sel.onchange=function(){
     const key=+this.value||null;
     if(key){
-      const ot=allOTs.find(o=>(o._uid||o.otNum)===key);
+      const ot=projOTs.find(o=>(o._uid||o.otNum)===key);
       if(ot){_otEditNum=key;loadOTFields(ot);}
     } else {
-      _otEditNum=null;clearOTFields();
-      document.getElementById('ot-numero-input').value='';
+      _otEditNum=null;
+      clearOTFields();
+      _fillOTDefaultsFromComponent(compId,runId);
       _setOTNumeroEditable(true);
     }
   };
@@ -4489,10 +4541,7 @@ function saveOT(){
         return false;
       }
     }
-    const _liveMaxOt=projects.reduce((mx,p)=>Math.max(mx,...(p.ordenes||[])
-      .filter(o=>o.fechaPedido||o.cliente||o.descripcion||o.pieza)
-      .map(o=>o.otNum||0)),0);
-    const otNum=inputNum>0?inputNum:Math.max(274,_liveMaxOt+1);
+    const otNum=inputNum>0?inputNum:_nextOtNum();
     _otCounter=Math.max(_otCounter, otNum)+1;
     document.getElementById('ot-numero').textContent=otNum;
     _setOTNumeroEditable(false);
@@ -5040,8 +5089,7 @@ function reopenOT(k){
     document.getElementById('ot-numero').textContent=ot.otNum;
     loadOTFields(ot);
     buildProdRows();
-    const allActiveOTs=(p.ordenes||[]).filter(o=>!o.anulada);
-    _showOTLinkSelector(firstRun.compId,firstRun.runId,allActiveOTs,ot._uid||ot.otNum);
+    _showOTLinkSelector(firstRun.compId,firstRun.runId,ot._uid||ot.otNum);
     document.getElementById('modal-ot').style.display='flex';
   },50);
 }
