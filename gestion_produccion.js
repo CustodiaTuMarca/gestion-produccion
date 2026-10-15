@@ -1172,7 +1172,17 @@ function _renderEntregasOC(p, hoy){
     return;
   }
 
-  document.getElementById('entrega-list').innerHTML=ocs.map((oc,ocIdx)=>{
+  const mostrarOCsCompletasEnt=p._mostrarOCsCompletasEnt||false;
+  const completas=ocs.filter(oc=>_ocCompleta(p,oc));
+  const visibles=mostrarOCsCompletasEnt?ocs:ocs.filter(oc=>!_ocCompleta(p,oc));
+  const toggleBtn=completas.length>0?`<div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">
+    <button onclick="currentProject()._mostrarOCsCompletasEnt=!currentProject()._mostrarOCsCompletasEnt;renderEntregas();"
+      style="font-size:11px;padding:3px 10px;border:1px solid var(--gris-medio);border-radius:6px;cursor:pointer;background:${mostrarOCsCompletasEnt?'var(--negro)':'#fff'};color:${mostrarOCsCompletasEnt?'var(--amarillo)':'var(--gris-oscuro)'}">
+      ${mostrarOCsCompletasEnt?'▲ Ocultar':'▼ Mostrar'} OCs completadas (${completas.length})
+    </button>
+  </div>`:'';
+
+  document.getElementById('entrega-list').innerHTML=toggleBtn+visibles.map((oc,ocIdx)=>{
     const ocColor=SUBCOLORS[ocIdx%SUBCOLORS.length];
     const ocSubs=p.subconjuntos.filter(s=>s.ocId===oc.id);
     const ocCompleta=_ocCompleta(p,oc);
