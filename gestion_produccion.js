@@ -381,7 +381,11 @@ function confirmDeleteProject(){
 }
 
 // ── Log de movimientos ────────────────────────────────────────
-let movLog=[]; // [{ts, tipo:'carga'|'mov'|'sub'|'conj'|'deshacer', title, detail, nota}]
+// movLog es un accessor global (ver Object.defineProperty más arriba) que
+// apunta a currentProject().movLog — NO declarar `let movLog` aquí: tapa
+// ese accessor y hace que el historial quede siempre vacío para quien lea
+// la variable local en vez de la del proyecto activo.
+// [{ts, tipo:'carga'|'mov'|'sub'|'conj'|'deshacer', title, detail, nota}]
 function fmtTs(d){
   const pad=n=>String(n).padStart(2,'0');
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
@@ -640,6 +644,7 @@ function addOC(){
     cliente:'',
     qty:1,
   });
+  addLog('mov','+ Nueva OC creada','Pendiente de completar datos','');
   renderOCList();
   scheduleSync();
 }
@@ -647,14 +652,26 @@ function addOC(){
 function removeOC(ocId){
   const p=currentProject();
   if(!confirm('¿Eliminar esta OC y todos sus ítems y componentes?'))return;
+  const oc=p.ordenesCompra.find(o=>o.id===ocId);
   // eliminar subconjuntos y componentes de esta OC
   const subIds=p.subconjuntos.filter(s=>s.ocId===ocId).map(s=>s.id);
   p.subconjuntos=p.subconjuntos.filter(s=>s.ocId!==ocId);
   p.components=p.components.filter(c=>!subIds.includes(c.subId));
   p.ordenesCompra=p.ordenesCompra.filter(o=>o.id!==ocId);
+  addLog('deshacer',`✕ OC eliminada: ${oc?.numero?'N°'+oc.numero:'(sin N°)'}`,oc?.descripcion||'','');
   renderOCList();
   renderSubList();
   scheduleSync();
+}
+
+// Loguea una modificación de datos de OC (número/descripción/cliente/cantidad).
+// Se llama desde los onchange de esos campos en renderOCList, no desde oninput,
+// para no generar un registro por cada tecla/click sino uno por edición confirmada.
+function logOCEdit(ocId){
+  const oc=currentProject().ordenesCompra.find(o=>o.id===ocId);
+  if(!oc)return;
+  addLog('mov',`✏ OC modificada: ${oc.numero?'N°'+oc.numero:'(sin N°)'}`,
+    `${oc.descripcion||''}${oc.cliente?' · Cliente: '+oc.cliente:''} · ×${oc.qty||1}`,'');
 }
 
 function addItemToOC(ocId){
@@ -709,20 +726,21 @@ function renderOCList(){
         <input type="text" value="${oc.numero||''}" placeholder="N° OC"
           style="width:90px;font-weight:700;font-size:12px;border:1px solid ${color};border-radius:5px;padding:3px 7px"
           onclick="event.stopPropagation()"
-          onchange="currentProject().ordenesCompra.find(o=>o.id===${oc.id}).numero=this.value;scheduleSync()">
+          onchange="currentProject().ordenesCompra.find(o=>o.id===${oc.id}).numero=this.value;logOCEdit(${oc.id});scheduleSync()">
         <input type="text" value="${oc.descripcion||''}" placeholder="Descripción de la OC"
           style="flex:1;min-width:120px;font-size:12px;border:1px solid #ddd;border-radius:5px;padding:3px 7px"
           onclick="event.stopPropagation()"
-          onchange="currentProject().ordenesCompra.find(o=>o.id===${oc.id}).descripcion=this.value;scheduleSync()">
+          onchange="currentProject().ordenesCompra.find(o=>o.id===${oc.id}).descripcion=this.value;logOCEdit(${oc.id});scheduleSync()">
         <input type="text" value="${oc.cliente||''}" placeholder="Cliente"
           style="width:140px;font-size:12px;border:1px solid #ddd;border-radius:5px;padding:3px 7px"
           onclick="event.stopPropagation()"
-          onchange="currentProject().ordenesCompra.find(o=>o.id===${oc.id}).cliente=this.value;scheduleSync()">
+          onchange="currentProject().ordenesCompra.find(o=>o.id===${oc.id}).cliente=this.value;logOCEdit(${oc.id});scheduleSync()">
         <label style="font-size:10px;color:#888;white-space:nowrap" onclick="event.stopPropagation()">× cant:</label>
         <input type="number" value="${oc.qty||1}" min="1"
           style="width:55px;font-weight:700;border:1px solid ${color};border-radius:5px;padding:3px 5px"
           onclick="event.stopPropagation()"
-          oninput="currentProject().ordenesCompra.find(o=>o.id===${oc.id}).qty=+this.value;renderStock()">
+          oninput="currentProject().ordenesCompra.find(o=>o.id===${oc.id}).qty=+this.value;renderStock()"
+          onchange="logOCEdit(${oc.id})">
         <span style="font-size:11px;color:#888;white-space:nowrap">${ocSubs.length} ítem${ocSubs.length!==1?'s':''} · ${ocComps.length} comp.</span>
         ${esCompleta?'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;background:#1a7a4a;color:#fff">✓ COMPLETADA</span>':''}
         <button onclick="event.stopPropagation();removeOC(${oc.id})"
