@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hoja de Proceso</title>
+<style>
+  :root{
+    --negro:#1a1a1a;
+    --gris-oscuro:#555;
+    --gris-medio:#999;
+    --gris-claro:#ddd;
+    --gris-fondo:#f5f5f3;
+    --azul:#2980b9;
+    --azul-claro:#eaf3fb;
+    --amarillo:#f3e64a;
+    --verde:#1a7a4a;
+    --rojo:#c0392b;
+  }
+  *{box-sizing:border-box}
+  body{
+    font-family:Arial,Helvetica,sans-serif;
+    font-size:13px;
+    color:var(--negro);
+    background:#e9e9e7;
+    margin:0;
+    padding:16px;
+  }
+  .hoja{
+    max-width:1000px;
+    margin:0 auto;
+    background:#fff;
+    padding:18px 22px;
+    border-radius:8px;
+    box-shadow:0 2px 10px rgba(0,0,0,.15);
+  }
+  h1{font-size:19px;margin:0 0 4px}
+  .subtitulo{font-size:11px;color:var(--gris-oscuro);margin-bottom:14px}
+
+  /* ── Toolbar ── */
+  .toolbar{
+    display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+    margin-bottom:16px;padding-bottom:14px;border-bottom:2px solid var(--gris-claro);
+  }
+  .btn{
+    font-size:12px;font-weight:700;padding:7px 14px;border-radius:6px;border:none;
+    cursor:pointer;
+  }
+  .btn-principal{background:var(--amarillo);color:var(--negro)}
+  .btn-secundario{background:var(--azul-claro);color:var(--azul);border:1px solid #b8d4f0}
+  .btn-del-row,.btn-del-img{
+    background:#fff;color:var(--rojo);border:1px solid #f0c0c0;border-radius:4px;
+    cursor:pointer;font-size:12px;font-weight:700;width:22px;height:22px;line-height:1;
+  }
+  .leyenda{font-size:11px;color:var(--gris-oscuro);margin-left:auto}
+  .leyenda span{display:inline-flex;align-items:center;gap:4px;margin-left:10px}
+  .chip{display:inline-block;width:10px;height:10px;border-radius:2px}
+  .chip-fijo{background:var(--azul)}
+  .chip-var{background:#d68910}
+
+  /* ── Secciones ── */
+  .seccion{margin-bottom:16px;border:1.5px solid var(--gris-claro);border-radius:8px;overflow:hidden}
+  .seccion-titulo{
+    background:var(--negro);color:#fff;font-weight:700;font-size:12px;
+    text-transform:uppercase;letter-spacing:.04em;padding:8px 14px;
+    display:flex;align-items:center;justify-content:space-between;
+  }
+  .seccion-titulo.clicable{cursor:pointer}
+  .seccion-cuerpo{padding:14px}
+  .seccion-cuerpo.colapsado{display:none}
+  .seccion.fija .seccion-titulo{border-left:5px solid var(--azul)}
+  .seccion.variable .seccion-titulo{border-left:5px solid #d68910}
+
+  /* ── Grillas de campos ── */
+  .grid{display:grid;gap:10px}
+  .grid-enc{grid-template-columns:120px 1fr 1fr 1fr}
+  .grid-mat{grid-template-columns:1fr 1fr 1fr}
+  .campo{display:flex;flex-direction:column;gap:3px}
+  .campo label{font-size:10px;font-weight:700;color:var(--gris-oscuro);text-transform:uppercase;letter-spacing:.03em}
+  .campo input,.campo textarea,.campo select{
+    font-size:13px;padding:6px 8px;border:1px solid var(--gris-claro);border-radius:5px;
+    font-family:inherit;width:100%;
+  }
+  .campo textarea{resize:vertical;min-height:50px}
+
+  /* ── Logo ── */
+  .logo-box{
+    width:110px;height:80px;border:1.5px dashed var(--gris-medio);border-radius:6px;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+    background:var(--gris-fondo);flex-shrink:0;overflow:hidden;
+  }
+  .logo-box img{max-width:100%;max-height:100%}
+  #logo-placeholder{font-size:10px;color:var(--gris-medio);text-align:center;padding:4px}
+
+  /* ── Tablas dinámicas ── */
+  table.tbl{width:100%;border-collapse:collapse;margin-top:6px}
+  table.tbl th,table.tbl td{border:1px solid var(--gris-claro);padding:4px;font-size:12px}
+  table.tbl th{background:var(--gris-fondo);font-size:10px;text-transform:uppercase;color:var(--gris-oscuro);font-weight:700}
+  table.tbl td input,table.tbl td textarea{
+    width:100%;border:none;font-size:12px;padding:3px;font-family:inherit;background:transparent;
+  }
+  table.tbl td input:focus,table.tbl td textarea:focus{background:#fffbe6;outline:1px solid var(--azul)}
+  table.tbl td.col-accion{text-align:center;width:30px}
+  .btn-agregar-fila{
+    margin-top:8px;font-size:11px;font-weight:700;padding:5px 12px;border-radius:5px;
+    border:1px solid var(--gris-medio);background:#fff;cursor:pointer;color:var(--gris-oscuro);
+  }
+
+  /* ── Bloques CNC ── */
+  .cnc-campos{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px}
+
+  /* ── Imágenes de referencia ── */
+  .paste-zone{
+    border:2px dashed var(--gris-medio);border-radius:8px;padding:22px;text-align:center;
+    color:var(--gris-oscuro);font-size:12px;cursor:pointer;background:var(--gris-fondo);
+  }
+  .paste-zone:focus{outline:2px solid var(--azul);background:var(--azul-claro)}
+  .imagenes-grid{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:12px;
+  }
+  .img-card{position:relative;border:1px solid var(--gris-claro);border-radius:6px;overflow:hidden;background:#fafafa}
+  .img-card img{width:100%;height:120px;object-fit:cover;display:block}
+  .img-card .btn-del-img{
+    position:absolute;top:4px;right:4px;background:#fff;border-radius:50%;
+    width:22px;height:22px;box-shadow:0 1px 4px rgba(0,0,0,.3);
+  }
+
+  /* ── Firma / footer de bloque ── */
+  .firmas{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:4px}
+
+  .no-print-inline{display:inline}
+
+  /* ── Impresión ── */
+  @media print{
+    @page{size:A4;margin:10mm}
+    body{background:#fff;padding:0;font-size:11px}
+    .hoja{max-width:none;box-shadow:none;padding:0;border-radius:0}
+    .toolbar,.no-print,.btn-agregar-fila,.btn-del-row,.btn-del-img,.leyenda{display:none !important}
+    .seccion{break-inside:avoid;border-color:#999}
+    .seccion-cuerpo.colapsado{display:block !important}
+    .seccion-titulo{background:#222 !important;color:#fff !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    table.tbl td input,table.tbl td textarea{outline:none}
+    .paste-zone{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="hoja">
+
+  <div class="toolbar">
+    <button class="btn btn-principal" onclick="imprimirHoja()">🖨 Imprimir A4</button>
+    <button class="btn btn-secundario" onclick="guardarJSON()">💾 Guardar como JSON</button>
+    <label class="btn btn-secundario" style="cursor:pointer">
+      📂 Cargar JSON
+      <input type="file" accept=".json,application/json" style="display:none" onchange="cargarJSONFile(event)">
+    </label>
+    <span class="leyenda">
+      <span><span class="chip chip-fijo"></span> Campo fijo (se completa una vez)</span>
+      <span><span class="chip chip-var"></span> Campo variable (por ejecución)</span>
+    </span>
+  </div>
+
+  <h1>HOJA DE PROCESO</h1>
+  <div class="subtitulo">Taller metalmecánico — documento de taller, imprimible en A4</div>
+
+  <!-- 1. ENCABEZADO -->
+  <div class="seccion fija">
+    <div class="seccion-titulo">1. Encabezado</div>
+    <div class="seccion-cuerpo">
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">
+        <div class="logo-box" id="logo-box" onclick="document.getElementById('logo-input').click()" title="Clic para cargar logo">
+          <span id="logo-placeholder">+ LOGO<br>EMPRESA</span>
+          <img id="logo-img" style="display:none" alt="Logo de la empresa">
+        </div>
+        <input type="file" id="logo-input" accept="image/*" style="display:none" onchange="cargarLogo(event)">
+        <div class="grid grid-enc" style="flex:1">
+          <div class="campo"><label>Cliente</label><input type="text" id="enc-cliente"></div>
+          <div class="campo"><label>N° Plano / Pieza</label><input type="text" id="enc-plano"></div>
+          <div class="campo"><label>Revisión</label><input type="text" id="enc-revision"></div>
+          <div class="campo"><label>Descripción</label><input type="text" id="enc-descripcion"></div>
+        </div>
+      </div>
+      <div class="grid grid-enc">
+        <div class="campo"><label>N° Orden de Trabajo</label><input type="text" id="enc-ot"></div>
+        <div class="campo"><label>Cantidad</label><input type="number" min="0" id="enc-cantidad"></div>
+        <div class="campo"><label>Fecha</label><input type="date" id="enc-fecha"></div>
+        <div class="campo"><label>Elaborado por</label><input type="text" id="enc-elaborado"></div>
+      </div>
+      <div class="grid grid-enc" style="margin-top:10px">
+        <div class="campo"><label>Aprobado por</label><input type="text" id="enc-aprobado"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. MATERIAL -->
+  <div class="seccion fija">
+    <div class="seccion-titulo">2. Material</div>
+    <div class="seccion-cuerpo">
+      <div class="grid grid-mat">
+        <div class="campo"><label>Tipo / Aleación</label><input type="text" id="mat-tipo" placeholder="Ej: Acero SAE 1045"></div>
+        <div class="campo"><label>Dimensiones de materia prima</label><input type="text" id="mat-dimensiones" placeholder="Ej: Barra Ø40 x 300mm"></div>
+        <div class="campo"><label>N° de lote</label><input type="text" id="mat-lote"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. TABLA DE OPERACIONES -->
+  <div class="seccion fija">
+    <div class="seccion-titulo">3. Secuencia de operaciones</div>
+    <div class="seccion-cuerpo">
+      <table class="tbl" id="tabla-operaciones">
+        <thead>
+          <tr>
+            <th style="width:40px">N° Op</th>
+            <th>Máquina / Puesto</th>
+            <th>Descripción de la operación</th>
+            <th>Sujeción / Utillaje</th>
+            <th>Herramientas</th>
+            <th style="width:70px">T. Prep. (min)</th>
+            <th style="width:70px">T. Ciclo (min)</th>
+            <th>Instrumentos de control</th>
+            <th class="col-accion no-print"></th>
+          </tr>
+        </thead>
+        <tbody id="tbody-operaciones"></tbody>
+      </table>
+      <button type="button" class="btn-agregar-fila no-print" onclick="addOpRow()">+ Agregar operación</button>
+    </div>
+  </div>
+
+  <!-- 4. BLOQUE TORNO CNC -->
+  <div class="seccion fija">
+    <div class="seccion-titulo clicable" onclick="toggleSeccion('sec-torno')">
+      <span>4. Torno CNC</span><span id="chev-sec-torno">▾</span>
+    </div>
+    <div class="seccion-cuerpo" id="sec-torno">
+      <div class="cnc-campos">
+        <div class="campo"><label>Programa / Código</label><input type="text" id="cnc-programa"></div>
+        <div class="campo"><label>Origen de pieza</label><input type="text" id="cnc-origen" placeholder="Ej: cara frontal, Z0 en tope"></div>
+      </div>
+      <table class="tbl" id="tabla-torno">
+        <thead>
+          <tr>
+            <th style="width:50px">N° Herram.</th>
+            <th>Descripción</th>
+            <th>Código / Inserto</th>
+            <th>Compensación (offset)</th>
+            <th>Observaciones</th>
+            <th class="col-accion no-print"></th>
+          </tr>
+        </thead>
+        <tbody id="tbody-torno"></tbody>
+      </table>
+      <button type="button" class="btn-agregar-fila no-print" onclick="addTornoRow()">+ Agregar herramienta</button>
+    </div>
+  </div>
+
+  <!-- 5. BLOQUE CENTRO DE MECANIZADO -->
+  <div class="seccion fija">
+    <div class="seccion-titulo clicable" onclick="toggleSeccion('sec-centro')">
+      <span>5. Centro de mecanizado</span><span id="chev-sec-centro">▾</span>
+    </div>
+    <div class="seccion-cuerpo" id="sec-centro">
+      <div class="cnc-campos">
+        <div class="campo"><label>Programa</label><input type="text" id="cm-programa"></div>
+        <div class="campo"><label>Fixture / Mordaza</label><input type="text" id="cm-fixture"></div>
+        <div class="campo"><label>WCS / Origen</label><input type="text" id="cm-wcs" placeholder="Ej: G54, esquina sup. izq."></div>
+      </div>
+      <table class="tbl" id="tabla-centro">
+        <thead>
+          <tr>
+            <th style="width:50px">N° Herram.</th>
+            <th>Descripción</th>
+            <th>Diámetro</th>
+            <th>Compensación</th>
+            <th>Observaciones</th>
+            <th class="col-accion no-print"></th>
+          </tr>
+        </thead>
+        <tbody id="tbody-centro"></tbody>
+      </table>
+      <button type="button" class="btn-agregar-fila no-print" onclick="addCentroRow()">+ Agregar herramienta</button>
+    </div>
+  </div>
+
+  <!-- 6. CONTROL DE CALIDAD -->
+  <div class="seccion fija">
+    <div class="seccion-titulo">6. Control de calidad</div>
+    <div class="seccion-cuerpo">
+      <table class="tbl" id="tabla-calidad">
+        <thead>
+          <tr>
+            <th>Cota</th>
+            <th>Tolerancia</th>
+            <th>Instrumento</th>
+            <th>Frecuencia</th>
+            <th>Criterio de aceptación</th>
+            <th class="col-accion no-print"></th>
+          </tr>
+        </thead>
+        <tbody id="tbody-calidad"></tbody>
+      </table>
+      <button type="button" class="btn-agregar-fila no-print" onclick="addCalidadRow()">+ Agregar cota</button>
+    </div>
+  </div>
+
+  <!-- 7. IMÁGENES DE REFERENCIA -->
+  <div class="seccion fija">
+    <div class="seccion-titulo">7. Imágenes de referencia</div>
+    <div class="seccion-cuerpo">
+      <div class="paste-zone no-print" id="paste-zone" tabindex="0">
+        📋 Hacé clic acá y presioná <strong>Ctrl+V</strong> para pegar una imagen desde el portapapeles
+      </div>
+      <div class="imagenes-grid" id="imagenes-grid"></div>
+    </div>
+  </div>
+
+  <!-- 8. OBSERVACIONES Y SEGURIDAD -->
+  <div class="seccion fija">
+    <div class="seccion-titulo">8. Observaciones y seguridad</div>
+    <div class="seccion-cuerpo">
+      <div class="grid" style="grid-template-columns:1fr 1fr 1fr">
+        <div class="campo"><label>Notas especiales</label><textarea id="obs-notas"></textarea></div>
+        <div class="campo"><label>EPP requerido</label><textarea id="obs-epp" placeholder="Ej: lentes, guantes anticorte, protección auditiva"></textarea></div>
+        <div class="campo"><label>Riesgos</label><textarea id="obs-riesgos" placeholder="Ej: viruta caliente, atrapamiento"></textarea></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 9. REGISTRO DE EJECUCIÓN -->
+  <div class="seccion variable">
+    <div class="seccion-titulo">9. Registro de ejecución</div>
+    <div class="seccion-cuerpo">
+      <table class="tbl" id="tabla-ejecucion">
+        <thead>
+          <tr>
+            <th>Operador</th>
+            <th style="width:100px">Fecha</th>
+            <th style="width:90px">Cant. producida</th>
+            <th style="width:90px">Cant. rechazada</th>
+            <th>Firma</th>
+            <th class="col-accion no-print"></th>
+          </tr>
+        </thead>
+        <tbody id="tbody-ejecucion"></tbody>
+      </table>
+      <button type="button" class="btn-agregar-fila no-print" onclick="addEjecRow()">+ Agregar registro</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── Estado en memoria (no persiste solo, se guarda/carga vía JSON) ──
+let logoDataUrl='';
+let imagenes=[]; // dataURLs
+
+function val(id){const el=document.getElementById(id);return el?el.value:'';}
+function setVal(id,v){const el=document.getElementById(id);if(el)el.value=(v===undefined||v===null)?'':v;}
+
+// ── Colapsar/expandir bloques CNC ──
+function toggleSeccion(id){
+  const el=document.getElementById(id);
+  if(!el)return;
+  el.classList.toggle('colapsado');
+  const chev=document.getElementById('chev-'+id);
+  if(chev)chev.textContent=el.classList.contains('colapsado')?'▸':'▾';
+}
+
+// ── Helpers genéricos de tablas dinámicas ──
+function getRowInputs(tr){
+  return Array.from(tr.querySelectorAll('input,textarea,select'));
+}
+function collectTable(tbodyId){
+  const tbody=document.getElementById(tbodyId);
+  return Array.from(tbody.rows).map(tr=>getRowInputs(tr).map(el=>el.value));
+}
+function fillTable(tbodyId,addRowFn,dataRows){
+  const tbody=document.getElementById(tbodyId);
+  tbody.innerHTML='';
+  (dataRows||[]).forEach(vals=>{
+    addRowFn();
+    const tr=tbody.lastElementChild;
+    getRowInputs(tr).forEach((el,i)=>{if(vals[i]!==undefined)el.value=vals[i];});
+  });
+}
+// ── 3. Operaciones ──
+function addOpRow(){
+  const tbody=document.getElementById('tbody-operaciones');
+  const n=tbody.rows.length+1;
+  const tr=document.createElement('tr');
+  tr.innerHTML=`
+    <td><input type="number" min="1" value="${n}" style="width:40px"></td>
+    <td><input type="text" placeholder="Ej: Torno CNC 1"></td>
+    <td><input type="text" placeholder="Descripción de la operación"></td>
+    <td><input type="text" placeholder="Sujeción / utillaje"></td>
+    <td><input type="text" placeholder="Herramientas"></td>
+    <td><input type="number" min="0" step="0.1"></td>
+    <td><input type="number" min="0" step="0.1"></td>
+    <td><input type="text" placeholder="Instrumentos de control"></td>
+    <td class="col-accion no-print"><button type="button" class="btn-del-row" onclick="this.closest('tr').remove()">×</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+// ── 4. Torno CNC — herramientas ──
+function addTornoRow(){
+  const tbody=document.getElementById('tbody-torno');
+  const tr=document.createElement('tr');
+  tr.innerHTML=`
+    <td><input type="text" style="width:40px"></td>
+    <td><input type="text" placeholder="Descripción"></td>
+    <td><input type="text" placeholder="Código / inserto"></td>
+    <td><input type="text" placeholder="Offset"></td>
+    <td><input type="text" placeholder="Observaciones"></td>
+    <td class="col-accion no-print"><button type="button" class="btn-del-row" onclick="this.closest('tr').remove()">×</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+// ── 5. Centro de mecanizado — herramientas ──
+function addCentroRow(){
+  const tbody=document.getElementById('tbody-centro');
+  const tr=document.createElement('tr');
+  tr.innerHTML=`
+    <td><input type="text" style="width:40px"></td>
+    <td><input type="text" placeholder="Descripción"></td>
+    <td><input type="text" placeholder="Diámetro"></td>
+    <td><input type="text" placeholder="Compensación"></td>
+    <td><input type="text" placeholder="Observaciones"></td>
+    <td class="col-accion no-print"><button type="button" class="btn-del-row" onclick="this.closest('tr').remove()">×</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+// ── 6. Control de calidad ──
+function addCalidadRow(){
+  const tbody=document.getElementById('tbody-calidad');
+  const tr=document.createElement('tr');
+  tr.innerHTML=`
+    <td><input type="text" placeholder="Ej: Ø20 +/-0.02"></td>
+    <td><input type="text" placeholder="Tolerancia"></td>
+    <td><input type="text" placeholder="Ej: Calibre, micrómetro"></td>
+    <td><input type="text" placeholder="Ej: 1 de cada 10"></td>
+    <td><input type="text" placeholder="Criterio de aceptación"></td>
+    <td class="col-accion no-print"><button type="button" class="btn-del-row" onclick="this.closest('tr').remove()">×</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+// ── 9. Registro de ejecución ──
+function addEjecRow(){
+  const tbody=document.getElementById('tbody-ejecucion');
+  const tr=document.createElement('tr');
+  tr.innerHTML=`
+    <td><input type="text" placeholder="Operador"></td>
+    <td><input type="date"></td>
+    <td><input type="number" min="0"></td>
+    <td><input type="number" min="0"></td>
+    <td><input type="text" placeholder="Firma"></td>
+    <td class="col-accion no-print"><button type="button" class="btn-del-row" onclick="this.closest('tr').remove()">×</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+// ── Logo ──
+function cargarLogo(evt){
+  const file=evt.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    logoDataUrl=e.target.result;
+    const img=document.getElementById('logo-img');
+    img.src=logoDataUrl;
+    img.style.display='block';
+    document.getElementById('logo-placeholder').style.display='none';
+  };
+  reader.readAsDataURL(file);
+}
+
+// ── Imágenes de referencia (pegar desde portapapeles) ──
+function renderImagenes(){
+  const grid=document.getElementById('imagenes-grid');
+  grid.innerHTML=imagenes.map((src,i)=>`
+    <div class="img-card">
+      <img src="${src}" alt="Imagen de referencia ${i+1}">
+      <button type="button" class="btn-del-img no-print" onclick="eliminarImagen(${i})" title="Eliminar imagen">×</button>
+    </div>`).join('');
+}
+function eliminarImagen(i){
+  imagenes.splice(i,1);
+  renderImagenes();
+}
+function initPasteZone(){
+  const zone=document.getElementById('paste-zone');
+  if(!zone)return;
+  zone.addEventListener('paste',function(e){
+    const items=(e.clipboardData||window.clipboardData).items;
+    if(!items)return;
+    for(const item of items){
+      if(item.type&&item.type.indexOf('image')===0){
+        const blob=item.getAsFile();
+        const reader=new FileReader();
+        reader.onload=function(ev){
+          imagenes.push(ev.target.result);
+          renderImagenes();
+        };
+        reader.readAsDataURL(blob);
+      }
+    }
+  });
+}
+
+// ── Imprimir ──
+function imprimirHoja(){
+  window.print();
+}
+
+// ── Guardar / Cargar JSON ──
+function guardarJSON(){
+  const data={
+    _tipo:'hoja_proceso',
+    _version:1,
+    logo:logoDataUrl,
+    encabezado:{
+      cliente:val('enc-cliente'),
+      plano:val('enc-plano'),
+      revision:val('enc-revision'),
+      descripcion:val('enc-descripcion'),
+      ot:val('enc-ot'),
+      cantidad:val('enc-cantidad'),
+      fecha:val('enc-fecha'),
+      elaboradoPor:val('enc-elaborado'),
+      aprobadoPor:val('enc-aprobado')
+    },
+    material:{
+      tipo:val('mat-tipo'),
+      dimensiones:val('mat-dimensiones'),
+      lote:val('mat-lote')
+    },
+    operaciones:collectTable('tbody-operaciones'),
+    cncTorno:{
+      programa:val('cnc-programa'),
+      origen:val('cnc-origen'),
+      herramientas:collectTable('tbody-torno')
+    },
+    centroMecanizado:{
+      programa:val('cm-programa'),
+      fixture:val('cm-fixture'),
+      wcs:val('cm-wcs'),
+      herramientas:collectTable('tbody-centro')
+    },
+    calidad:collectTable('tbody-calidad'),
+    observaciones:{
+      notas:val('obs-notas'),
+      epp:val('obs-epp'),
+      riesgos:val('obs-riesgos')
+    },
+    imagenes:imagenes,
+    ejecucion:collectTable('tbody-ejecucion')
+  };
+  const json=JSON.stringify(data,null,2);
+  const blob=new Blob([json],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const nombreBase=(data.encabezado.ot||data.encabezado.plano||'sin_datos').toString().replace(/[^a-zA-Z0-9_-]+/g,'_');
+  a.href=url;
+  a.download=`hoja_proceso_${nombreBase}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function cargarJSONFile(evt){
+  const file=evt.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    let data;
+    try{
+      data=JSON.parse(e.target.result);
+    }catch(err){
+      alert('El archivo seleccionado no es un JSON válido.');
+      return;
+    }
+    aplicarDatos(data);
+  };
+  reader.readAsText(file);
+  evt.target.value='';
+}
+
+function aplicarDatos(data){
+  data=data||{};
+
+  logoDataUrl=data.logo||'';
+  const logoImg=document.getElementById('logo-img');
+  const logoPh=document.getElementById('logo-placeholder');
+  if(logoDataUrl){
+    logoImg.src=logoDataUrl;
+    logoImg.style.display='block';
+    logoPh.style.display='none';
+  }else{
+    logoImg.style.display='none';
+    logoPh.style.display='block';
+  }
+
+  const enc=data.encabezado||{};
+  setVal('enc-cliente',enc.cliente);
+  setVal('enc-plano',enc.plano);
+  setVal('enc-revision',enc.revision);
+  setVal('enc-descripcion',enc.descripcion);
+  setVal('enc-ot',enc.ot);
+  setVal('enc-cantidad',enc.cantidad);
+  setVal('enc-fecha',enc.fecha);
+  setVal('enc-elaborado',enc.elaboradoPor);
+  setVal('enc-aprobado',enc.aprobadoPor);
+
+  const mat=data.material||{};
+  setVal('mat-tipo',mat.tipo);
+  setVal('mat-dimensiones',mat.dimensiones);
+  setVal('mat-lote',mat.lote);
+
+  fillTable('tbody-operaciones',addOpRow,data.operaciones);
+
+  const cnc=data.cncTorno||{};
+  setVal('cnc-programa',cnc.programa);
+  setVal('cnc-origen',cnc.origen);
+  fillTable('tbody-torno',addTornoRow,cnc.herramientas);
+
+  const cm=data.centroMecanizado||{};
+  setVal('cm-programa',cm.programa);
+  setVal('cm-fixture',cm.fixture);
+  setVal('cm-wcs',cm.wcs);
+  fillTable('tbody-centro',addCentroRow,cm.herramientas);
+
+  fillTable('tbody-calidad',addCalidadRow,data.calidad);
+
+  const obs=data.observaciones||{};
+  setVal('obs-notas',obs.notas);
+  setVal('obs-epp',obs.epp);
+  setVal('obs-riesgos',obs.riesgos);
+
+  imagenes=(data.imagenes||[]).slice();
+  renderImagenes();
+
+  fillTable('tbody-ejecucion',addEjecRow,data.ejecucion);
+}
+
+// ── Inicialización ──
+function initHoja(){
+  // fecha de hoy por defecto
+  const fechaEl=document.getElementById('enc-fecha');
+  if(fechaEl&&!fechaEl.value){
+    const d=new Date();
+    const pad=n=>String(n).padStart(2,'0');
+    fechaEl.value=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  }
+  // una fila inicial en blanco por tabla, para que el formulario no se vea vacío
+  addOpRow();
+  addTornoRow();
+  addCentroRow();
+  addCalidadRow();
+  addEjecRow();
+  initPasteZone();
+}
+document.addEventListener('DOMContentLoaded',initHoja);
+</script>
+</body>
+</html>
