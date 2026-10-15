@@ -654,6 +654,7 @@
     <div style="font-size:11px;font-weight:700;color:#2980b9;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">💾 Backup de datos</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <button onclick="exportBackup()" style="font-size:12px;font-weight:600;color:var(--negro);background:var(--amarillo);border:none;border-radius:6px;padding:6px 14px;cursor:pointer">↓ Guardar backup (JSON)</button>
+      <span id="ultimo-backup-label" style="font-size:11px;color:#888"></span>
       <label style="font-size:12px;font-weight:600;color:#2980b9;background:#eef5fc;border:1px solid #b8d4f0;border-radius:8px;padding:6px 14px;cursor:pointer">
         ↑ Restaurar backup
         <input type="file" accept=".json" onchange="importBackup(event)" style="display:none">

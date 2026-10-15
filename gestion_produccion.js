@@ -409,6 +409,7 @@ function clearLog(){
   movLog=[];renderHistorial();
 }
 function renderHistorial(){
+  renderUltimoBackup();
   const list=logFilter==='all'?movLog:movLog.filter(e=>e.tipo===logFilter);
   document.getElementById('log-count').textContent=`${list.length} registro${list.length!==1?'s':''}`;
   if(!list.length){
@@ -4404,6 +4405,18 @@ function exportBackup(){
   a.href=url;a.download=`backup_produccion_${dateStr}.json`;
   a.click();URL.revokeObjectURL(url);
   document.getElementById('backup-status').textContent=`✓ Backup guardado: ${projects.length} proyecto${projects.length!==1?'s':''} · ${dateStr}`;
+  localStorage.setItem('ultimoBackup',now.toISOString());
+  renderUltimoBackup();
+}
+
+function renderUltimoBackup(){
+  const el=document.getElementById('ultimo-backup-label');
+  if(!el)return;
+  const iso=localStorage.getItem('ultimoBackup');
+  if(!iso){el.textContent='Sin backups registrados';return;}
+  const d=new Date(iso);
+  const pad=n=>String(n).padStart(2,'0');
+  el.textContent=`Último backup: ${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function importBackup(evt){
