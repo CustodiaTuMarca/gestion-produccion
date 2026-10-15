@@ -527,7 +527,7 @@ function toggleDepDrop(id,e){
   // Asegurar visibilidad dentro del contenedor scroll antes de calcular posición
   trigger.scrollIntoView({block:'nearest'});
   const r=trigger.getBoundingClientRect();
-  const menuMaxH=180;
+  const menuMaxH=290;
   const spaceBelow=window.innerHeight-r.bottom;
   if(spaceBelow>=menuMaxH||spaceBelow>=r.top){
     m.style.top=(r.bottom+2)+'px';
@@ -863,7 +863,10 @@ function _renderSubCards(subsArr, el, baseColorIdx, isOC, oc){
             const searchTxt=`${o.name||''} ${oSub?oSub.name:''}`.toLowerCase().replace(/"/g,'&quot;');
             return `<label class="dep-option" data-search="${searchTxt}">
               <input type="checkbox" value="${o.id}" ${c.deps.includes(o.id)?'checked':''} onchange="toggleDep(${c.id},${o.id},this.checked)">
-              <span>${o.name||'?'} <span style="color:#aaa;font-size:10px">(${oSub?oSub.name:'?'})</span></span>
+              <span class="dep-option-text">
+                <span class="dep-option-name">${o.name||'?'}</span>
+                ${oSub?`<span class="dep-option-sub">${oSub.name}</span>`:''}
+              </span>
             </label>`;
           }).join('');
 
