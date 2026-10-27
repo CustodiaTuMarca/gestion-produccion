@@ -214,12 +214,13 @@ let ganttSelectedIds=[projects[0].id]; // proyectos incluidos en el Gantt combin
 
 // ── Accesores ─────────────────────────────────────────────────
 function currentProject(){return projects.find(p=>p.id===activeProjectId)||projects[0];}
-// Limpia deps rotas (apuntan a componentes que ya no existen)
+// Limpia deps rotas (apuntan a componentes o subconjuntos que ya no existen)
 function cleanBrokenDeps(proj){
   const validIds=new Set((proj.components||[]).map(c=>c.id));
+  const validSubKeys=new Set((proj.subconjuntos||[]).map(s=>`sub:${s.id}`));
   (proj.components||[]).forEach(c=>{
     if(c.deps&&c.deps.length){
-      const cleaned=c.deps.filter(d=>validIds.has(d));
+      const cleaned=c.deps.filter(d=>validIds.has(d)||validSubKeys.has(d));
       if(cleaned.length!==c.deps.length) c.deps=cleaned;
     }
   });
@@ -440,6 +441,17 @@ function totalStockComp(compId){
 function totalSubArmados(subId){
   return (subArmados[subId]||[]).reduce((s,x)=>s+x.qty,0);
 }
+// Cantidad total requerida de un subconjunto para completar el proyecto
+// (misma fórmula usada en Avance/Stock: fija si es recurso de proyecto,
+// × cantidad de OC en modo OC, × unidades a producir en modo conjuntos)
+function subQtyNeeded(sub,proj){
+  if(sub.esRecursoProyecto)return 1;
+  if((proj.mode||'conjuntos')==='oc'){
+    const oc=(proj.ordenesCompra||[]).find(o=>o.id===sub.ocId);
+    return (sub.qty||1)*(oc?+(oc.qty||1):1);
+  }
+  return (sub.qty||1)*(proj.unitsProd||5);
+}
 
 // ── Título ──────────────────────────────────────────────────
 function editTitle(){
@@ -571,7 +583,13 @@ function toggleDep(compId,depId,checked){
   renderSubList();
 }
 function depLabel(c){
-  return c.deps.length===0?'Ninguna':c.deps.map(d=>{const x=components.find(q=>q.id===d);return x?x.name:'?'}).join(', ');
+  return c.deps.length===0?'Ninguna':c.deps.map(d=>{
+    if(typeof d==='string'&&d.startsWith('sub:')){
+      const s=subconjuntos.find(q=>q.id===+d.slice(4));
+      return s?'📦 '+s.name:'?';
+    }
+    const x=components.find(q=>q.id===d);return x?x.name:'?';
+  }).join(', ');
 }
 document.addEventListener('click',()=>document.querySelectorAll('.dep-menu').forEach(m=>m.style.display='none'));
 
@@ -875,9 +893,18 @@ function _renderSubCards(subsArr, el, baseColorIdx, isOC, oc){
       const esSerie=isMaquinaSerie(c.machine);
       const esDias=isMaquinaDias(c.machine);
       const allOthers=components.filter(x=>x.id!==c.id).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-      const depOpts=allOthers.length===0
-        ?'<div style="padding:6px 10px;font-size:11px;color:#aaa">Sin otros componentes</div>'
-        :allOthers.map(o=>{
+      const otherSubs=subconjuntos.filter(s=>s.id!==c.subId).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+      const subDepOpts=otherSubs.map(s=>{
+        const depKey=`sub:${s.id}`;
+        const searchTxt=(s.name||'').toLowerCase().replace(/"/g,'&quot;');
+        return `<label class="dep-option" data-search="${searchTxt}">
+          <input type="checkbox" value="${depKey}" ${c.deps.includes(depKey)?'checked':''} onchange="toggleDep(${c.id},'${depKey}',this.checked)">
+          <span class="dep-option-text">
+            <span class="dep-option-name" style="font-weight:700">📦 ${s.name||'?'}</span>
+          </span>
+        </label>`;
+      }).join('');
+      const compDepOpts=allOthers.map(o=>{
             const oSub=subconjuntos.find(s=>s.id===o.subId);
             const searchTxt=`${o.name||''} ${oSub?oSub.name:''}`.toLowerCase().replace(/"/g,'&quot;');
             return `<label class="dep-option" data-search="${searchTxt}">
@@ -888,6 +915,7 @@ function _renderSubCards(subsArr, el, baseColorIdx, isOC, oc){
               </span>
             </label>`;
           }).join('');
+      const depOpts=(subDepOpts+compDepOpts)||'<div style="padding:6px 10px;font-size:11px;color:#aaa">Sin otros componentes ni subconjuntos</div>';
 
       let tiempoField='';
       if(esSerie){
@@ -1056,6 +1084,9 @@ function removeSub(id){
   if(!confirm('¿Eliminar este subconjunto y todos sus componentes?'))return;
   subconjuntos=subconjuntos.filter(x=>x.id!==id);
   components=components.filter(x=>x.subId!==id);
+  // Limpiar referencias a este subconjunto en deps de los componentes restantes
+  const depKey=`sub:${id}`;
+  currentProject().components.forEach(x=>{x.deps=(x.deps||[]).filter(d=>d!==depKey);});
   renderSubList(); scheduleSync();
 }
 function addComp(sid){
@@ -1988,8 +2019,7 @@ function updateRunModal(){
   else if(esDias) infoTxt=`${MICON[c.machine]||''} ${c.machine} · ${c.dias||1} día(s) de proceso (fijo, indep. de cantidad)`;
   else infoTxt=`${c.machine||'Sin proceso asignado'}`;
   if(c.deps.length){
-    const depNames=c.deps.map(d=>components.find(q=>q.id===d)?.name||'?').join(', ');
-    infoTxt+=` · Depende de: ${depNames}`;
+    infoTxt+=` · Depende de: ${depLabel(c)}`;
   }
   document.getElementById('run-info').textContent=infoTxt;
   // si estamos en modo antes/despues, actualizar selector de runs
@@ -2337,13 +2367,27 @@ function doAddRun(){
   if(!c){document.getElementById('run-warn').textContent='Seleccioná un componente.';return;}
 
   // ── Validar dependencias: las deps deben tener al menos un run cargado ──
+  // (para deps de subconjunto: satisfecha si ya está armado, o si alguno
+  // de sus componentes ya tiene un run cargado)
   if(c.deps && c.deps.length>0){
     const depsWithoutRun=c.deps.filter(depId=>{
+      if(typeof depId==='string'&&depId.startsWith('sub:')){
+        const sub=subconjuntos.find(s=>s.id===+depId.slice(4));
+        if(!sub) return false;
+        if(totalSubArmados(sub.id)>=subQtyNeeded(sub,currentProject())) return false;
+        return !components.filter(x=>x.subId===sub.id).some(sc=>(sc.runs||[]).length>0);
+      }
       const depComp=components.find(x=>x.id===depId);
       return !depComp||(depComp.runs||[]).length===0;
     });
     if(depsWithoutRun.length>0){
-      const names=depsWithoutRun.map(id=>components.find(x=>x.id===id)?.name||'?').join(', ');
+      const names=depsWithoutRun.map(id=>{
+        if(typeof id==='string'&&id.startsWith('sub:')){
+          const s=subconjuntos.find(x=>x.id===+id.slice(4));
+          return s?'📦 '+s.name:'?';
+        }
+        return components.find(x=>x.id===id)?.name||'?';
+      }).join(', ');
       document.getElementById('run-warn').innerHTML=
         `⚠ Este componente depende de: <strong>${names}</strong><br>
         Primero cargá un run en esa/s dependencia/s antes de programar este proceso.`;
@@ -3040,9 +3084,42 @@ function computeGanttBlocks(projList){
   // Si no hay deps (o no hay datos para estimarlas) el piso es "sin
   // restricción" (fecha centinela muy antigua) — nunca "hoy": el
   // scheduler no debe forzar ningún run a partir de la fecha actual.
+  // Estima la fecha de fin de un componente a partir de sus runs pendientes
+  // (usado cuando todavía no se calculó compEnd porque el run de la dep no
+  // fue agendado aún en este mismo pase del scheduler).
+  function estimateEndFromRuns(depComp){
+    const depRuns=(depComp.runs||[]).filter(r=>(r.fabricado||0)<(r.qty||1));
+    if(!depRuns.length) return null;
+    let est=null;
+    depRuns.forEach(r=>{
+      const dur=esGrupoA(depComp.machine)
+        ?Math.max(1,(depComp.mins||0)*(r.qty||1))
+        :Math.max(1,(depComp.dias||1)*480);
+      const startD=dateStr(skipToWorkingDay(new Date(r.fecha||today)));
+      const res=addWorkingMins(startD,0,dur);
+      const e={date:res.date,min:res.minInDay};
+      if(!est||cmpTime(e,est)>0) est=e;
+    });
+    return est;
+  }
+
   function depsFloor(comp,proj){
     let floor=null;
     for(const depId of (comp.deps||[])){
+      // Dependencia de tipo subconjunto ("sub:ID"): satisfecha si el
+      // subconjunto ya está completamente armado (no bloquea); si no,
+      // el piso es la fecha estimada de fin de todos sus componentes.
+      if(typeof depId==='string'&&depId.startsWith('sub:')){
+        const subId=+depId.slice(4);
+        const sub=proj.subconjuntos.find(s=>s.id===subId);
+        if(!sub) continue;
+        if(totalSubArmados(subId)>=subQtyNeeded(sub,proj)) continue;
+        proj.components.filter(c=>c.subId===subId).forEach(depComp=>{
+          const est=getEnd(proj.id,depComp.id)||estimateEndFromRuns(depComp);
+          if(est&&(!floor||cmpTime(est,floor)>0)) floor={...est};
+        });
+        continue;
+      }
       const de=getEnd(proj.id,depId);
       if(de){
         if(!floor||cmpTime(de,floor)>0) floor={...de};
@@ -3050,18 +3127,8 @@ function computeGanttBlocks(projList){
         // no calculada todavía: estimarla a partir de los runs propios de la dep
         const depComp=proj.components.find(c=>c.id===depId);
         if(!depComp) continue;
-        const depRuns=(depComp.runs||[])
-          .filter(r=>(r.fabricado||0)<(r.qty||1));
-        if(!depRuns.length) continue;
-        depRuns.forEach(r=>{
-          const dur=esGrupoA(depComp.machine)
-            ?Math.max(1,(depComp.mins||0)*(r.qty||1))
-            :Math.max(1,(depComp.dias||1)*480);
-          const startD=dateStr(skipToWorkingDay(new Date(r.fecha||today)));
-          const res=addWorkingMins(startD,0,dur);
-          const est={date:res.date,min:res.minInDay};
-          if(!floor||cmpTime(est,floor)>0) floor={...est};
-        });
+        const est=estimateEndFromRuns(depComp);
+        if(est&&(!floor||cmpTime(est,floor)>0)) floor={...est};
       }
     }
     return floor||{date:'1970-01-01',min:0};
@@ -3994,7 +4061,13 @@ function exportExcel(){
       rows.push([sub.name,sub.qty,c.name,c.machine||'—',c.qty,
         isMaquinaDias(c.machine)?`${c.dias||1} días`:`${c.mins||0} min/pieza`,
         isMaquinaDias(c.machine)?'Días fijos':'Minutos×cantidad',
-        c.deps.map(d=>{const x=proj.components.find(q=>q.id===d);return x?x.name:''}).filter(Boolean).join(', ')
+        c.deps.map(d=>{
+          if(typeof d==='string'&&d.startsWith('sub:')){
+            const s=proj.subconjuntos.find(q=>q.id===+d.slice(4));
+            return s?'📦 '+s.name:'';
+          }
+          const x=proj.components.find(q=>q.id===d);return x?x.name:'';
+        }).filter(Boolean).join(', ')
       ]);
     });
   });
