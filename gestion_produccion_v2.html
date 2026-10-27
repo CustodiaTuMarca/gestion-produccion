@@ -741,6 +741,20 @@
   </div>
 </div>
 
+<!-- MODAL COLA DE MAQUINA (reordenar runs) -->
+<div id="modal-queue" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:2000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;padding:20px;width:480px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.2)">
+    <div style="font-weight:700;font-size:15px;margin-bottom:4px" id="queue-title">📋 Cola de máquina</div>
+    <div style="font-size:11px;color:#888;margin-bottom:8px">Reordená los runs pendientes con ▲ ▼. Los cambios se guardan al confirmar.</div>
+    <div id="queue-warn" style="font-size:11px;color:#c0392b;font-weight:600;margin-bottom:8px;display:none;background:#fdecea;border-radius:6px;padding:6px 8px"></div>
+    <div id="queue-list" style="overflow-y:auto;flex:1;border:1px solid var(--gris-claro);border-radius:8px;padding:4px;min-height:80px"></div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button onclick="cancelQueueOrder()" style="flex:1;padding:8px;border:1px solid #ddd;border-radius:8px;cursor:pointer;background:#fff;font-size:13px">Cancelar</button>
+      <button onclick="confirmQueueOrder()" style="flex:1;padding:8px;border:none;border-radius:8px;cursor:pointer;background:#2980b9;color:#fff;font-weight:700;font-size:13px">Guardar orden</button>
+    </div>
+  </div>
+</div>
+
 
 <!-- MODAL ORDEN DE TRABAJO -->
 <div id="modal-ot">

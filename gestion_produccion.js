@@ -2360,6 +2360,101 @@ function _normalizeAllRunOrders(){
   machines.forEach(m=>_normalizeRunOrder(m));
 }
 
+// ── Panel "Cola de máquina" — reordenar runs pendientes con ▲▼ ─────────
+let _queueMaq=null;
+let _queueItems=[];    // [{proj,comp,run}] referencias vivas, en el orden de trabajo actual
+let _queueSnapshot=[]; // [{run,order,fechaFija}] para poder descartar cambios al cancelar
+
+function _collectQueueItems(machine){
+  const items=[];
+  projects.forEach(proj=>{
+    proj.components.forEach(comp=>{
+      if(comp.machine!==machine)return;
+      (comp.runs||[]).filter(r=>(r.fabricado||0)<(r.qty||1)).forEach(run=>{
+        items.push({proj,comp,run});
+      });
+    });
+  });
+  items.sort((a,b)=>(a.run.order??99999)-(b.run.order??99999));
+  return items;
+}
+
+function openQueueModal(machine){
+  _queueMaq=machine;
+  _queueItems=_collectQueueItems(machine);
+  _queueSnapshot=_queueItems.map(it=>({run:it.run,order:it.run.order,fechaFija:it.run.fechaFija}));
+  document.getElementById('queue-title').textContent=`📋 Cola de máquina — ${MICON[machine]||''} ${machine}`;
+  document.getElementById('queue-warn').style.display='none';
+  renderQueueList();
+  document.getElementById('modal-queue').style.display='flex';
+}
+
+function renderQueueList(){
+  const list=document.getElementById('queue-list');
+  if(!_queueItems.length){
+    list.innerHTML='<p style="color:#aaa;font-size:12px;text-align:center;padding:20px">Sin runs pendientes en esta máquina.</p>';
+    return;
+  }
+  const isMulti=new Set(_queueItems.map(it=>it.proj.id)).size>1;
+  list.innerHTML=_queueItems.map((it,idx)=>{
+    const{proj,comp,run}=it;
+    const projBadge=isMulti?`<span style="color:#888;font-weight:400">[${proj.name}] </span>`:'';
+    const durMins=duracionMins(comp,run.qty||1);
+    const lastIdx=_queueItems.length-1;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid #f0f0ee">
+      <div style="width:18px;text-align:center;font-size:10px;color:#aaa;flex-shrink:0">${idx+1}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${projBadge}${comp.name||'?'}</div>
+        <div style="font-size:10px;color:#888">${fmtDur(durMins)} · ×${run.qty||1}${run.fecha?' · '+fmtDate(run.fecha):''}</div>
+      </div>
+      <div style="display:flex;gap:3px;flex-shrink:0">
+        <button ${idx===0?'disabled':''} onclick="moveQueueItem(${idx},-1)"
+          style="font-size:11px;padding:2px 7px;border:1px solid var(--gris-medio);border-radius:4px;cursor:${idx===0?'default':'pointer'};background:#fff;color:${idx===0?'#ccc':'var(--gris-oscuro)'}">▲</button>
+        <button ${idx===lastIdx?'disabled':''} onclick="moveQueueItem(${idx},1)"
+          style="font-size:11px;padding:2px 7px;border:1px solid var(--gris-medio);border-radius:4px;cursor:${idx===lastIdx?'default':'pointer'};background:#fff;color:${idx===lastIdx?'#ccc':'var(--gris-oscuro)'}">▼</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function moveQueueItem(idx,dir){
+  const newIdx=idx+dir;
+  if(newIdx<0||newIdx>=_queueItems.length)return;
+  const lo=Math.min(idx,newIdx), hi=Math.max(idx,newIdx);
+  const first=_queueItems[lo], second=_queueItems[hi]; // orden actual: first antes que second
+  // Tras el swap, "second" pasaría a ubicarse antes que "first". Eso es
+  // inválido si second depende de first: al estar en esta lista de
+  // pendientes, first (por definición) todavía no está completado.
+  if((second.comp.deps||[]).includes(first.comp.id)){
+    const w=document.getElementById('queue-warn');
+    w.textContent=`No se puede mover: ${second.comp.name||'?'} depende de ${first.comp.name||'?'} que aún no está completado. Reprogramá primero la dependencia.`;
+    w.style.display='block';
+    return;
+  }
+  document.getElementById('queue-warn').style.display='none';
+  [_queueItems[idx],_queueItems[newIdx]]=[_queueItems[newIdx],_queueItems[idx]];
+  // Reasignar run.order de toda la lista según la nueva posición
+  _queueItems.forEach((it,i)=>{it.run.order=(i+1)*10;});
+  // Los runs que cambiaron de posición vuelven a cola libre (ya no fecha fija)
+  _queueItems[idx].run.fechaFija=false;
+  _queueItems[newIdx].run.fechaFija=false;
+  renderQueueList();
+}
+
+function confirmQueueOrder(){
+  document.getElementById('modal-queue').style.display='none';
+  if(_queueMaq) _normalizeRunOrder(_queueMaq);
+  _queueMaq=null;_queueItems=[];_queueSnapshot=[];
+  if(document.getElementById('pane-gantt')?.classList.contains('active')) renderGantt();
+  scheduleSync();
+}
+
+function cancelQueueOrder(){
+  _queueSnapshot.forEach(s=>{s.run.order=s.order;s.run.fechaFija=s.fechaFija;});
+  document.getElementById('modal-queue').style.display='none';
+  _queueMaq=null;_queueItems=[];_queueSnapshot=[];
+}
+
 function doAddRun(){
   const compId=+document.getElementById('run-comp').value;
   const nota=document.getElementById('run-nota').value.trim();
@@ -3608,6 +3703,9 @@ function renderGantt(){
         <span style="font-size:12px">${mIcon}</span>
         <span style="font-weight:800;font-size:12px;color:${col};flex:1">${maq}</span>
         <span style="font-size:10px;color:#888;font-weight:400">${runCount} run${runCount!==1?'s':''}${compCount>0?` · <span style="color:#1a7a4a">✓${compCount}</span>`:''}</span>
+        <button onclick="event.stopPropagation();openQueueModal('${maq}')"
+          style="font-size:9px;padding:1px 7px;border:1px solid ${col};border-radius:4px;
+            cursor:pointer;background:#fff;color:${col};font-weight:600">📋 Reordenar cola</button>
         <button onclick="event.stopPropagation();exportGanttMachinePDF('${maq}')"
           style="font-size:9px;padding:1px 7px;border:1px solid ${col};border-radius:4px;
             cursor:pointer;background:#fff;color:${col};font-weight:600">🖨 PDF</button>
