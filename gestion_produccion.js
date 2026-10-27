@@ -2375,7 +2375,15 @@ function _collectQueueItems(machine){
       });
     });
   });
-  items.sort((a,b)=>(a.run.order??99999)-(b.run.order??99999));
+  // Orden inicial de visualización: por fecha de inicio del bloque calculado
+  // en el Gantt (b.start.date); si un run todavía no tiene bloque, usar
+  // run.fecha como fallback. El reordenamiento con ▲▼ sigue usando run.order.
+  const{blocks}=computeGanttBlocks(projects);
+  function startDateOf(it){
+    const b=blocks.find(x=>x.projId===it.proj.id&&x.compId===it.comp.id&&x.runId===it.run.id);
+    return (b?b.start.date:it.run.fecha)||'';
+  }
+  items.sort((a,b)=>startDateOf(a).localeCompare(startDateOf(b)));
   return items;
 }
 
