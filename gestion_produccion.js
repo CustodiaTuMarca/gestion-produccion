@@ -925,6 +925,7 @@ function _renderSubCards(subsArr, el, baseColorIdx, isOC, oc){
           <input class="comp-name-input" value="${c.name}" placeholder="Nombre del componente"
             oninput="components.find(x=>x.id==${c.id}).name=this.value"
             onblur="components.find(x=>x.id==${c.id}).name=this.value;renderSubList();scheduleSync()">
+          <button class="btn-del" title="Mover a otro subconjunto" style="font-size:12px" onclick="event.stopPropagation();openMoveCompModal(${c.id})">↔</button>
           <button class="btn-del" onclick="
             const delId=${c.id};
             components=components.filter(x=>x.id!==delId);
@@ -1061,6 +1062,32 @@ function addComp(sid){
   _configExpanded.add(sid);
   components.push({id:++cpId,subId:sid,name:'',machine:'',qty:1,mins:0,dias:1,deps:[],runs:[]});
   renderSubList(); scheduleSync();
+}
+
+// ── Mover componente a otro subconjunto (mismo proyecto) ───────
+let _moveCompId=null;
+function openMoveCompModal(compId){
+  const comp=components.find(x=>x.id===compId);
+  if(!comp)return;
+  const opts=subconjuntos.filter(s=>s.id!==comp.subId);
+  if(!opts.length){alert('No hay otro subconjunto en este proyecto al cual mover el componente.');return;}
+  _moveCompId=compId;
+  document.getElementById('move-comp-msg').innerHTML=`Mover <b>${comp.name||'(sin nombre)'}</b> a:`;
+  document.getElementById('move-comp-target').innerHTML=opts.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+  document.getElementById('modal-move-comp').style.display='flex';
+}
+function confirmMoveComp(){
+  const comp=components.find(x=>x.id===_moveCompId);
+  const targetId=+document.getElementById('move-comp-target').value;
+  const target=subconjuntos.find(s=>s.id===targetId);
+  if(!comp||!target)return;
+  const origen=subconjuntos.find(s=>s.id===comp.subId);
+  if(!confirm(`¿Mover "${comp.name||'(sin nombre)'}" de "${origen?origen.name:'?'}" a "${target.name}"?`))return;
+  comp.subId=target.id;
+  document.getElementById('modal-move-comp').style.display='none';
+  _moveCompId=null;
+  renderSubList();
+  scheduleSync();
 }
 function addEntrega(){
   const p=currentProject();
