@@ -472,7 +472,7 @@ function saveTitle(){
 
 // ── Tabs ─────────────────────────────────────────────────────
 function showTab(t){
-  const names=['dashboard','config','stock','entregas','gantt','pendientes','ot','np','historial'];
+  const names=['dashboard','config','stock','entregas','gantt','pendientes','ot','np','historial','pizarra'];
   document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',names[i]===t));
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   document.getElementById('pane-'+t).classList.add('active');
@@ -484,6 +484,7 @@ function showTab(t){
   if(t==='ot')renderOTTabla();
   if(t==='np')renderNPTabla();
   if(t==='pendientes')renderPendientes();
+  if(t==='pizarra')renderPizarra();
   if(t==='config'||t==='stock') requestAnimationFrame(applyTabScroll);
 }
 
@@ -5297,6 +5298,156 @@ function calcDesvioFinal(puReal,puMP,puTT,puVenta){
   const v=parseFloat(puVenta)||0;
   if(!costo||!v)return '';
   return (((v-costo)/costo)*100).toFixed(1)+'%';
+}
+
+// ── Pizarra de producción ──────────────────────────────────────
+const PIZARRA_PROCESOS=['Torno','Centro','Roscado','Soldadura'];
+
+// Determina, para una OT, el estado de cada proceso fijo de la pizarra.
+// null = el ítem no tiene ese proceso (celda vacía)
+// 'verde' = el proceso está fabricado (fabricado>=qty en todos sus runs)
+// 'rojo' = el proceso existe pero está pendiente
+function _pizarraProcesoEstado(ot,proj){
+  const runList=ot.runs&&ot.runs.length>0?ot.runs:[{compId:ot.compId,runId:ot.runId}];
+  const subIds=new Set();
+  runList.forEach(({compId})=>{
+    const c=proj.components.find(c=>c.id===compId);
+    if(c)subIds.add(c.subId);
+  });
+  const result={};
+  PIZARRA_PROCESOS.forEach(proc=>{
+    const comps=proj.components.filter(c=>subIds.has(c.subId)&&c.machine===proc);
+    if(!comps.length){ result[proc]=null; return; }
+    let totalFab=0,totalQty=0,hasRuns=false;
+    comps.forEach(c=>{
+      (c.runs||[]).forEach(r=>{
+        hasRuns=true;
+        totalFab+=r.fabricado||0;
+        totalQty+=r.qty||0;
+      });
+    });
+    result[proc]=(hasRuns&&totalQty>0&&totalFab>=totalQty)?'verde':'rojo';
+  });
+  return result;
+}
+
+function _pizarraCircle(estado){
+  if(estado===null||estado===undefined) return '';
+  return estado==='verde'
+    ?'<span class="piz-circle piz-green">✓</span>'
+    :'<span class="piz-circle piz-red"></span>';
+}
+
+// Reúne las OTs abiertas (no completadas ni anuladas) de todos los proyectos,
+// filtradas por el buscador y ordenadas por N° de OT descendente.
+function _pizarraRows(filterText){
+  const rows=[];
+  projects.forEach(proj=>{
+    (proj.ordenes||[]).forEach(ot=>{
+      if(ot.completada||ot.anulada) return;
+      if(filterText){
+        const haystack=`${ot.otNum} ${ot.cliente||''} ${ot.docAsoc||''} ${ot.pieza||''} ${ot.descripcion||''}`.toLowerCase();
+        if(!haystack.includes(filterText)) return;
+      }
+      rows.push({ot,proj});
+    });
+  });
+  rows.sort((a,b)=>b.ot.otNum-a.ot.otNum);
+  return rows;
+}
+
+function renderPizarra(){
+  const el=document.getElementById('pizarra-content');
+  if(!el)return;
+  const filterText=(document.getElementById('pizarra-filter-text')?.value||'').trim().toLowerCase();
+  const rows=_pizarraRows(filterText);
+
+  if(!rows.length){
+    el.innerHTML=`<div style="text-align:center;color:#aaa;padding:30px;font-size:12px">Sin OTs abiertas${filterText?' que coincidan con la búsqueda':''}.</div>`;
+    return;
+  }
+
+  const trs=rows.map(({ot,proj})=>{
+    const procEstado=_pizarraProcesoEstado(ot,proj);
+    return `<tr>
+      <td class="piz-num">${ot.otNum}</td>
+      <td class="piz-ell" title="${ot.cliente||''}">${ot.cliente||''}</td>
+      <td class="piz-ell" title="${ot.docAsoc||''}">${ot.docAsoc||''}</td>
+      <td class="piz-ell" title="${ot.pieza||''}">${ot.pieza||''}</td>
+      <td class="piz-ell" title="${ot.descripcion||''}">${ot.descripcion||''}</td>
+      <td class="piz-num">${ot.unidades||''}</td>
+      <td class="piz-proc">${_pizarraCircle(procEstado.Torno)}</td>
+      <td class="piz-proc">${_pizarraCircle(procEstado.Centro)}</td>
+      <td class="piz-proc">${_pizarraCircle(procEstado.Roscado)}</td>
+      <td class="piz-proc">${_pizarraCircle(procEstado.Soldadura)}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML=`<table class="piz-table">
+    <thead><tr>
+      <th>N° OT</th><th>Cliente</th><th>OC cliente</th><th>Código/pieza</th><th>Descripción</th>
+      <th>Cant.</th><th>Torno</th><th>Centro</th><th>Roscado</th><th>Soldadura</th>
+    </tr></thead>
+    <tbody>${trs}</tbody>
+  </table>`;
+}
+
+function togglePizarraFullscreen(){
+  const wrap=document.getElementById('pizarra-fs-wrap');
+  if(!wrap)return;
+  if(!document.fullscreenElement){
+    (wrap.requestFullscreen||wrap.webkitRequestFullscreen||function(){}).call(wrap);
+  } else {
+    (document.exitFullscreen||document.webkitExitFullscreen||function(){}).call(document);
+  }
+}
+
+function printPizarra(){
+  const filterText=(document.getElementById('pizarra-filter-text')?.value||'').trim().toLowerCase();
+  const rows=_pizarraRows(filterText);
+  const ts=new Date().toLocaleDateString('es-AR');
+
+  const trs=rows.map(({ot,proj})=>{
+    const procEstado=_pizarraProcesoEstado(ot,proj);
+    return `<tr>
+      <td class="piz-num">${ot.otNum}</td>
+      <td class="piz-ell">${ot.cliente||''}</td>
+      <td class="piz-ell">${ot.docAsoc||''}</td>
+      <td class="piz-ell">${ot.pieza||''}</td>
+      <td class="piz-ell">${ot.descripcion||''}</td>
+      <td class="piz-num">${ot.unidades||''}</td>
+      <td class="piz-proc">${_pizarraCircle(procEstado.Torno)}</td>
+      <td class="piz-proc">${_pizarraCircle(procEstado.Centro)}</td>
+      <td class="piz-proc">${_pizarraCircle(procEstado.Roscado)}</td>
+      <td class="piz-proc">${_pizarraCircle(procEstado.Soldadura)}</td>
+    </tr>`;
+  }).join('');
+
+  const win=window.open('','_blank','width=1200,height=800');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Pizarra de producción</title>
+  <style>
+    body{margin:0;padding:10mm;font-family:Arial,sans-serif;background:#fff}
+    h2{font-size:15px;font-weight:700;color:#1a1a1a;margin-bottom:2px}
+    .meta{font-size:10px;color:#888;margin-bottom:10px}
+    table{width:100%;border-collapse:collapse;table-layout:fixed}
+    th,td{border:1px solid #ccc;padding:3px 5px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    th{background:#eee;font-weight:700;text-transform:uppercase;font-size:8.5px;text-align:left}
+    td.piz-num{text-align:center;font-weight:700}
+    td.piz-proc{text-align:center}
+    .piz-circle{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;font-size:9px;font-weight:800;color:#fff}
+    .piz-green{background:#1a7a4a}
+    .piz-red{background:#c0392b}
+    @media print{@page{size:A4 landscape;margin:8mm}}
+  </style></head><body>
+  <h2>📌 Pizarra de producción — OT abiertas</h2>
+  <div class="meta">Generado el ${ts} · ${rows.length} OT</div>
+  <table><thead><tr>
+    <th>N° OT</th><th>Cliente</th><th>OC cliente</th><th>Código/pieza</th><th>Descripción</th>
+    <th>Cant.</th><th>Torno</th><th>Centro</th><th>Roscado</th><th>Soldadura</th>
+  </tr></thead><tbody>${trs}</tbody></table>
+  <script>window.onload=()=>window.print()<\/script>
+  </body></html>`);
+  win.document.close();
 }
 
 // ── OT Filter state ──────────────────────────────────────────

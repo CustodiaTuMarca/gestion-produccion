@@ -75,6 +75,7 @@
   <button class="tab" onclick="showTab('ot')">📋 Órdenes de Trabajo</button>
   <button class="tab" onclick="showTab('np')">🛒 Notas de Pedido</button>
   <button class="tab" onclick="showTab('historial')">Historial</button>
+  <button class="tab" onclick="showTab('pizarra')">📌 Pizarra</button>
 </div>
 
 <!-- DASHBOARD -->
@@ -677,6 +678,24 @@
     <button onclick="exportExcel()" style="font-size:11px;font-weight:600;color:var(--negro);background:var(--amarillo);border:none;border-radius:6px;padding:5px 12px;cursor:pointer">↓ Exportar Excel</button>
   </div>
   <div id="historial-content"></div>
+</div>
+
+<!-- PIZARRA -->
+<div class="pane" id="pane-pizarra">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+    <div class="stitle" style="margin-bottom:0">Pizarra de producción — OT abiertas</div>
+    <div style="display:flex;gap:6px">
+      <button onclick="printPizarra()" style="font-size:12px;font-weight:600;color:var(--negro);background:#fff;border:1.5px solid var(--gris-medio);border-radius:6px;padding:5px 14px;cursor:pointer">🖨 Imprimir A4 apaisado</button>
+      <button onclick="togglePizarraFullscreen()" style="font-size:12px;font-weight:600;color:var(--negro);background:var(--amarillo);border:none;border-radius:6px;padding:5px 14px;cursor:pointer">⛶ Pantalla completa</button>
+    </div>
+  </div>
+  <input id="pizarra-filter-text" type="text" placeholder="Buscar por N° de OT, cliente, OC, código o descripción..."
+    style="width:100%;font-size:12px;margin-bottom:12px"
+    oninput="renderPizarra()">
+  <div id="pizarra-fs-wrap">
+    <button id="pizarra-fs-exit" onclick="togglePizarraFullscreen()">✕ Salir de pantalla completa</button>
+    <div id="pizarra-content"></div>
+  </div>
 </div>
 
 <!-- MODAL NUEVO PROYECTO -->
