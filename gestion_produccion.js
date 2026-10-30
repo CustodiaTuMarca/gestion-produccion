@@ -6672,8 +6672,9 @@ function _renderDashboardContent(el){
     </div>`;
   }
 
-  // ── Ocupación mensual: Torno, Centro y Roscado ───────────
-  const MAQ_OCUP=['Torno','Centro','Roscado'];
+  // ── Ocupación mensual: Torno, Centro, Roscado y Soldadura ──
+  // Orden fijo para la grilla 2x2: fila 1 Torno|Centro, fila 2 Roscado|Soldadura.
+  const MAQ_OCUP=['Torno','Centro','Roscado','Soldadura'];
   const mesActual={y:hoy.getFullYear(), m:hoy.getMonth()};
   const mesProx=mesActual.m===11?{y:mesActual.y+1,m:0}:{y:mesActual.y,m:mesActual.m+1};
   const mesesNombres=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -6697,7 +6698,7 @@ function _renderDashboardContent(el){
     ocup[mesKey][b.machine][proj.name]=(ocup[mesKey][b.machine][proj.name]||0)+hs;
   });
 
-  // Horas sin programar: componentes Torno/Centro/Roscado de sinRun
+  // Horas sin programar: componentes Torno/Centro/Roscado/Soldadura de sinRun
   const sinProgr={}; const sinProgrByProj={};
   MAQ_OCUP.forEach(maq=>{ sinProgr[maq]=0; sinProgrByProj[maq]={}; });
   sinRun.forEach(({comp,sub,proj})=>{
@@ -6711,7 +6712,7 @@ function _renderDashboardContent(el){
   function fmtHs(h){return h>=1?h.toFixed(1)+'h':Math.round(h*60)+'min';}
 
   function machineBox(maq,col,hs,n){
-    return `<div style="background:${col}11;border:1.5px solid ${col}33;border-radius:7px;padding:8px 6px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+    return `<div style="background:${col}11;border:1.5px solid ${col}33;border-radius:7px;padding:8px 6px;text-align:center;white-space:nowrap">
           <span style="font-size:10px;font-weight:700;color:#888">${MICON[maq]||''} ${maq}</span>
           <span style="font-size:19px;font-weight:900;color:${col};margin-left:4px">${fmtHs(hs)}</span>
           <span style="font-size:9px;color:#aaa;margin-left:3px">· ${n} proy.</span>
@@ -6734,7 +6735,7 @@ function _renderDashboardContent(el){
     }).join('');
     return `<div style="background:#fff;border-radius:12px;border:1.5px solid #ddd;border-top:4px solid var(--amarillo);padding:8px 10px">
       <div style="font-weight:800;font-size:12px;color:var(--negro);margin-bottom:6px">📅 ${label}</div>
-      <div onclick="(function(){var d=document.getElementById('${detailId}');d.style.display=d.style.display==='none'?'block':'none';})()" title="Clic para ver detalle por proyecto" style="cursor:pointer;display:grid;grid-template-columns:repeat(${MAQ_OCUP.length},1fr);gap:6px">
+      <div onclick="(function(){var d=document.getElementById('${detailId}');d.style.display=d.style.display==='none'?'block':'none';})()" title="Clic para ver detalle por proyecto" style="cursor:pointer;display:grid;grid-template-columns:repeat(2,1fr);gap:6px">
         ${boxesHtml}
       </div>
       <div id="${detailId}" style="display:none;background:#fafaf8;border:1px solid #eee;border-radius:6px;padding:8px 10px;margin-top:6px">
@@ -6759,7 +6760,7 @@ function _renderDashboardContent(el){
     }).join('');
     return `<div style="background:#fff;border-radius:12px;border:1.5px solid #e0983333;border-top:4px solid #e09833;padding:8px 10px">
       <div style="font-weight:800;font-size:12px;color:var(--negro);margin-bottom:6px">⚠ Sin programar</div>
-      <div onclick="(function(){var d=document.getElementById('${detailId}');d.style.display=d.style.display==='none'?'block':'none';})()" title="Clic para ver detalle por proyecto" style="cursor:pointer;display:grid;grid-template-columns:repeat(${MAQ_OCUP.length},1fr);gap:6px">
+      <div onclick="(function(){var d=document.getElementById('${detailId}');d.style.display=d.style.display==='none'?'block':'none';})()" title="Clic para ver detalle por proyecto" style="cursor:pointer;display:grid;grid-template-columns:repeat(2,1fr);gap:6px">
         ${boxesHtml}
       </div>
       <div id="${detailId}" style="display:none;background:#fafaf8;border:1px solid #eee;border-radius:6px;padding:8px 10px;margin-top:6px">
@@ -6769,7 +6770,7 @@ function _renderDashboardContent(el){
   }
 
   const ocupacionHtml=`<div style="margin-bottom:18px">
-    <div style="font-size:10px;font-weight:700;color:var(--gris-oscuro);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid var(--amarillo);display:inline-block">Ocupación Torno, Centro &amp; Roscado</div>
+    <div style="font-size:10px;font-weight:700;color:var(--gris-oscuro);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid var(--amarillo);display:inline-block">Ocupación Torno, Centro, Roscado &amp; Soldadura</div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
       ${mesCard('actual',mesesNombres[mesActual.m]+' '+mesActual.y)}
       ${mesCard('proximo',mesesNombres[mesProx.m]+' '+mesProx.y)}
