@@ -5339,7 +5339,7 @@ function _pizarraCircle(estado){
 }
 
 // Reúne las OTs abiertas (no completadas ni anuladas) de todos los proyectos,
-// filtradas por el buscador y ordenadas por N° de OT descendente.
+// filtradas por el buscador y ordenadas por N° de OT ascendente (más viejas arriba).
 function _pizarraRows(filterText){
   const rows=[];
   projects.forEach(proj=>{
@@ -5352,7 +5352,7 @@ function _pizarraRows(filterText){
       rows.push({ot,proj});
     });
   });
-  rows.sort((a,b)=>b.ot.otNum-a.ot.otNum);
+  rows.sort((a,b)=>a.ot.otNum-b.ot.otNum);
   return rows;
 }
 
@@ -5395,12 +5395,52 @@ function renderPizarra(){
 function togglePizarraFullscreen(){
   const wrap=document.getElementById('pizarra-fs-wrap');
   if(!wrap)return;
-  if(!document.fullscreenElement){
+  if(!document.fullscreenElement&&!document.webkitFullscreenElement){
     (wrap.requestFullscreen||wrap.webkitRequestFullscreen||function(){}).call(wrap);
   } else {
     (document.exitFullscreen||document.webkitExitFullscreen||function(){}).call(document);
   }
 }
+
+// No depende del CSS: fuerza estilos inline sobre el wrap y el botón de
+// salir al entrar/salir de pantalla completa, por si el navegador no
+// aplica bien las pseudo-clases :fullscreen (o sirve CSS cacheado).
+function _pizarraApplyFullscreenStyles(active){
+  const wrap=document.getElementById('pizarra-fs-wrap');
+  const exitBtn=document.getElementById('pizarra-fs-exit');
+  if(!wrap)return;
+  if(active){
+    wrap.classList.add('pizarra-fs-active');
+    Object.assign(wrap.style,{
+      background:'#fff',color:'#1a1a1a',
+      width:'100vw',height:'100vh',
+      overflow:'auto',padding:'24px',boxSizing:'border-box'
+    });
+    if(exitBtn){
+      exitBtn.style.display='inline-block';
+      Object.assign(exitBtn.style,{
+        position:'fixed',top:'14px',right:'14px',zIndex:'10000',
+        background:'#1a1a1a',color:'#f3e64a',fontWeight:'700',
+        fontSize:'14px',border:'none',borderRadius:'8px',
+        padding:'8px 16px',cursor:'pointer'
+      });
+    }
+  } else {
+    wrap.classList.remove('pizarra-fs-active');
+    ['background','color','width','height','overflow','padding','boxSizing'].forEach(p=>{wrap.style[p]='';});
+    if(exitBtn){
+      exitBtn.style.display='none';
+      ['position','top','right','zIndex','background','color','fontWeight','fontSize','border','borderRadius','padding','cursor'].forEach(p=>{exitBtn.style[p]='';});
+    }
+  }
+}
+['fullscreenchange','webkitfullscreenchange'].forEach(evt=>{
+  document.addEventListener(evt,()=>{
+    const wrap=document.getElementById('pizarra-fs-wrap');
+    const fsEl=document.fullscreenElement||document.webkitFullscreenElement;
+    _pizarraApplyFullscreenStyles(!!wrap&&fsEl===wrap);
+  });
+});
 
 function printPizarra(){
   const filterText=(document.getElementById('pizarra-filter-text')?.value||'').trim().toLowerCase();
@@ -5426,12 +5466,15 @@ function printPizarra(){
   const win=window.open('','_blank','width=1200,height=800');
   win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Pizarra de producción</title>
   <style>
-    body{margin:0;padding:10mm;font-family:Arial,sans-serif;background:#fff}
+    *{print-color-adjust:exact;-webkit-print-color-adjust:exact}
+    body{margin:0;padding:10mm;font-family:Arial,sans-serif;background:#fff;color:#1a1a1a}
     h2{font-size:15px;font-weight:700;color:#1a1a1a;margin-bottom:2px}
     .meta{font-size:10px;color:#888;margin-bottom:10px}
     table{width:100%;border-collapse:collapse;table-layout:fixed}
-    th,td{border:1px solid #ccc;padding:3px 5px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    th{background:#eee;font-weight:700;text-transform:uppercase;font-size:8.5px;text-align:left}
+    th,td{border-bottom:1px solid #ccc;padding:3px 5px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#1a1a1a}
+    th{background:#eee;font-weight:700;text-transform:uppercase;font-size:8.5px;text-align:left;border-bottom:2px solid #999}
+    th:nth-child(n+7),td:nth-child(n+7){width:60px;text-align:center}
+    tbody tr:nth-child(even) td{background:#f5f5f5}
     td.piz-num{text-align:center;font-weight:700}
     td.piz-proc{text-align:center}
     .piz-circle{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;font-size:9px;font-weight:800;color:#fff}
