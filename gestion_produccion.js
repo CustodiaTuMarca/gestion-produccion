@@ -6711,10 +6711,10 @@ function _renderDashboardContent(el){
   function fmtHs(h){return h>=1?h.toFixed(1)+'h':Math.round(h*60)+'min';}
 
   function machineBox(maq,col,hs,n){
-    return `<div style="background:${col}11;border:1.5px solid ${col}33;border-radius:8px;padding:10px;text-align:center">
-          <div style="font-size:10px;font-weight:700;color:#888;margin-bottom:3px">${MICON[maq]||''} ${maq}</div>
-          <div style="font-size:22px;font-weight:900;color:${col}">${fmtHs(hs)}</div>
-          <div style="font-size:9px;color:#aaa;margin-top:2px">${n} proy.</div>
+    return `<div style="background:${col}11;border:1.5px solid ${col}33;border-radius:7px;padding:8px 6px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          <span style="font-size:10px;font-weight:700;color:#888">${MICON[maq]||''} ${maq}</span>
+          <span style="font-size:19px;font-weight:900;color:${col};margin-left:4px">${fmtHs(hs)}</span>
+          <span style="font-size:9px;color:#aaa;margin-left:3px">· ${n} proy.</span>
         </div>`;
   }
   function mesCard(mesKey,label){
@@ -6732,13 +6732,12 @@ function _renderDashboardContent(el){
       const n=Object.keys(ocup[mesKey][maq]).length;
       return machineBox(maq,col,tot,n);
     }).join('');
-    return `<div style="background:#fff;border-radius:12px;border:1.5px solid #ddd;border-top:4px solid var(--amarillo);padding:14px 16px">
-      <div style="font-weight:800;font-size:13px;color:var(--negro);margin-bottom:10px">📅 ${label}</div>
-      <div onclick="(function(){var d=document.getElementById('${detailId}');d.style.display=d.style.display==='none'?'block':'none';})()" style="cursor:pointer;display:grid;grid-template-columns:repeat(${MAQ_OCUP.length},1fr);gap:8px;margin-bottom:4px">
+    return `<div style="background:#fff;border-radius:12px;border:1.5px solid #ddd;border-top:4px solid var(--amarillo);padding:8px 10px">
+      <div style="font-weight:800;font-size:12px;color:var(--negro);margin-bottom:6px">📅 ${label}</div>
+      <div onclick="(function(){var d=document.getElementById('${detailId}');d.style.display=d.style.display==='none'?'block':'none';})()" title="Clic para ver detalle por proyecto" style="cursor:pointer;display:grid;grid-template-columns:repeat(${MAQ_OCUP.length},1fr);gap:6px">
         ${boxesHtml}
       </div>
-      <div style="font-size:9px;color:#aaa;text-align:center;margin-bottom:6px">↑ Clic para ver detalle por proyecto</div>
-      <div id="${detailId}" style="display:none;background:#fafaf8;border:1px solid #eee;border-radius:6px;padding:8px 10px">
+      <div id="${detailId}" style="display:none;background:#fafaf8;border:1px solid #eee;border-radius:6px;padding:8px 10px;margin-top:6px">
         ${MAQ_OCUP.map(maq=>machineRows(maq,MACHINE_COLORS[maq]||'#aaa')).join('')}
       </div>
     </div>`;
@@ -6758,13 +6757,12 @@ function _renderDashboardContent(el){
       const n=Object.keys(sinProgrByProj[maq]).length;
       return machineBox(maq,col,sinProgr[maq],n);
     }).join('');
-    return `<div style="background:#fff;border-radius:12px;border:1.5px solid #e0983333;border-top:4px solid #e09833;padding:14px 16px">
-      <div style="font-weight:800;font-size:13px;color:var(--negro);margin-bottom:10px">⚠ Sin programar</div>
-      <div onclick="(function(){var d=document.getElementById('${detailId}');d.style.display=d.style.display==='none'?'block':'none';})()" style="cursor:pointer;display:grid;grid-template-columns:repeat(${MAQ_OCUP.length},1fr);gap:8px;margin-bottom:4px">
+    return `<div style="background:#fff;border-radius:12px;border:1.5px solid #e0983333;border-top:4px solid #e09833;padding:8px 10px">
+      <div style="font-weight:800;font-size:12px;color:var(--negro);margin-bottom:6px">⚠ Sin programar</div>
+      <div onclick="(function(){var d=document.getElementById('${detailId}');d.style.display=d.style.display==='none'?'block':'none';})()" title="Clic para ver detalle por proyecto" style="cursor:pointer;display:grid;grid-template-columns:repeat(${MAQ_OCUP.length},1fr);gap:6px">
         ${boxesHtml}
       </div>
-      <div style="font-size:9px;color:#aaa;text-align:center;margin-bottom:6px">↑ Clic para ver detalle por proyecto</div>
-      <div id="${detailId}" style="display:none;background:#fafaf8;border:1px solid #eee;border-radius:6px;padding:8px 10px">
+      <div id="${detailId}" style="display:none;background:#fafaf8;border:1px solid #eee;border-radius:6px;padding:8px 10px;margin-top:6px">
         ${MAQ_OCUP.map(maq=>machineRows(maq,MACHINE_COLORS[maq]||'#aaa')).join('')}
       </div>
     </div>`;
@@ -6785,17 +6783,17 @@ function _renderDashboardContent(el){
   const totalComps=projects.reduce((s,p)=>s+(p.components||[]).length,0);
   const totalNPs=projects.reduce((s,p)=>s+(p.notasPedido||[]).length,0);
 
-  const metricasHtml=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin-bottom:20px">
+  const metricasHtml=`<div style="display:flex;align-items:stretch;height:36px;background:#fff;border-radius:8px;border:1px solid #eee;box-shadow:0 1px 4px rgba(0,0,0,.05);margin-bottom:20px;overflow-x:auto">
     ${[
       {label:'Proyectos',val:totalProj,icon:'📁',color:'#2980b9'},
       {label:'En producción hoy',val:enProduccionHoy.length,icon:'🔧',color:enProduccionHoy.length?'#d68910':'#1a7a4a'},
       {label:'Runs activos',val:totalRunsPend,icon:'▶',color:'#8e44ad'},
       {label:'Sin programar',val:sinRun.length,icon:'⚠',color:sinRun.length?'#c0392b':'#1a7a4a'},
       {label:'NPs pendientes',val:npPendientes.length,icon:'🛒',color:npPendientes.length?'#c0392b':'#1a7a4a'},
-    ].map(m=>`<div style="background:#fff;border-radius:10px;padding:12px;text-align:center;border:1.5px solid ${m.color}22;box-shadow:0 1px 4px rgba(0,0,0,.05)">
-      <div style="font-size:20px">${m.icon}</div>
-      <div style="font-size:22px;font-weight:900;color:${m.color}">${m.val}</div>
-      <div style="font-size:9px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:.04em;margin-top:2px">${m.label}</div>
+    ].map((m,mi)=>`<div style="display:flex;align-items:center;justify-content:center;gap:5px;flex:1;white-space:nowrap;${mi>0?'border-left:1px solid #f0f0ee':''}">
+      <span style="font-size:14px">${m.icon}</span>
+      <span style="font-size:14px;font-weight:900;color:${m.color}">${m.val}</span>
+      <span style="font-size:10px;font-weight:600;color:#888">${m.label}</span>
     </div>`).join('')}
   </div>`;
 
