@@ -4759,11 +4759,26 @@ function importBackup(evt){
 }
 
 let _pendingBackup=null;
-function applyBackup(){
+async function applyBackup(){
   document.getElementById('modal-del-proj').style.display='none';
   if(!_pendingBackup)return;
   const payload=_pendingBackup;
   _pendingBackup=null;
+  // Restaurar un backup es una sobreescritura deliberada: alinear _rev con el
+  // servidor ANTES de tocar projects, para que el guardado posterior no
+  // dispare un conflicto. También se sale de cualquier conflicto pendiente.
+  _conflictOpen=false;_conflictInfo=null;
+  hideRemoteBanner();
+  const cm=document.getElementById('modal-sync-conflict');
+  if(cm)cm.style.display='none';
+  if(_userId){
+    try{
+      const snap=await db.collection('usuarios').doc(_userId).get();
+      _localRev=snap.exists?(snap.data()._rev||0):0;
+    }catch(e){
+      console.error('No se pudo leer _rev remota antes de restaurar backup:',e);
+    }
+  }
   // restaurar estado
   projects=payload.projects;
   activeProjectId=payload.activeProjectId||payload.projects[0].id;
@@ -6910,34 +6925,93 @@ function doLogout(){
   document.getElementById('entrega-status').innerHTML='';
   if(document.getElementById('gantt-container'))
     document.getElementById('gantt-container').innerHTML='';
+  // Dejar de escuchar cambios remotos del usuario anterior y limpiar estado de sync
+  if(_unsubscribeSnapshot){_unsubscribeSnapshot();_unsubscribeSnapshot=null;}
+  _conflictOpen=false;_conflictInfo=null;_pendingRemoteInfo=null;
+  hideRemoteBanner();
   // Cerrar sesión en Firebase
   auth.signOut();
 }
 
 // ── Sync con Firestore ────────────────────────────────────────
 let _saveTimer=null;
-let _loadingData=false; // guard: no escribir en Firestore mientras se carga
+let _loadingData=false;      // guard: no escribir en Firestore mientras se carga/aplica
+let _hasUnsavedChanges=false; // true entre un edit local y su guardado confirmado
+let _syncTicket=0;            // se incrementa en cada scheduleSync(); detecta ediciones durante un guardado en curso
+let _localRev=0;              // última _rev conocida del documento remoto
+let _conflictOpen=false;      // hay un conflicto esperando resolución del usuario
+let _conflictInfo=null;       // {remoteRev, remoteData?} del conflicto actual
+let _pendingRemoteInfo=null;  // {remoteRev, remoteData} de un cambio remoto bloqueado por el banner
+let _unsubscribeSnapshot=null;
 
 scheduleSync=function(){
-  if(!_userId||_loadingData)return;
+  if(!_userId||_loadingData||_conflictOpen)return;
+  _hasUnsavedChanges=true;
+  _syncTicket++;
+  const myTicket=_syncTicket;
   clearTimeout(_saveTimer);
-  _saveTimer=setTimeout(saveToFirestore, 2000);
-  showSyncIndicator('⏳ Guardando...','#fef3e2','#b8690a');
+  _saveTimer=setTimeout(()=>saveToFirestore(myTicket), 2000);
+  setSyncState('unsaved');
 };
 
-async function saveToFirestore(){
-  if(!_userId)return;
-  const payload={
-    projects, activeProjectId, ganttSelectedIds, _projIdSeq, _otCounter, _npCounter, _proveedores,
-    savedAt: firebase.firestore.FieldValue.serverTimestamp()
-  };
+async function saveToFirestore(ticket){
+  if(ticket===undefined)ticket=_syncTicket;
+  if(!_userId||_conflictOpen)return;
+  setSyncState('saving');
+  const docRef=db.collection('usuarios').doc(_userId);
+  const payload={projects, activeProjectId, ganttSelectedIds, _projIdSeq, _otCounter, _npCounter, _proveedores};
   try{
-    await db.collection('usuarios').doc(_userId).set(payload);
-    showSyncIndicator('✓ Guardado','#e6f4ed','#1a7a4a');
+    const newRev=await db.runTransaction(async tx=>{
+      const snap=await tx.get(docRef);
+      const remoteRev=snap.exists?(snap.data()._rev||0):0;
+      if(snap.exists && remoteRev!==_localRev){
+        const err=new Error('sync-conflict');
+        err.__syncConflict=true; err.remoteRev=remoteRev; err.remoteData=snap.data();
+        throw err;
+      }
+      const nextRev=remoteRev+1;
+      tx.set(docRef,{...payload,_rev:nextRev,savedAt:firebase.firestore.FieldValue.serverTimestamp()});
+      return nextRev;
+    });
+    _localRev=newRev;
+    if(ticket===_syncTicket){
+      _hasUnsavedChanges=false;
+      setSyncState('synced');
+    } else {
+      setSyncState('unsaved'); // hubo más ediciones mientras se guardaba; ya hay otro timer en camino
+    }
   }catch(e){
-    showSyncIndicator('⚠ Error al guardar','#fde8e8','#c0392b');
-    console.error('Firestore save error:',e);
+    if(e&&e.__syncConflict){
+      enterConflictState({remoteRev:e.remoteRev,remoteData:e.remoteData});
+    } else {
+      console.error('Firestore save error:',e);
+      setSyncState('unsaved');
+    }
   }
+}
+
+// Aplica los campos de un documento cargado/recibido al estado en memoria.
+// No dispara guardados: el llamador debe envolver con _loadingData=true/false.
+function _applyLoadedData(data){
+  if(!(data&&data.projects&&Array.isArray(data.projects)))return false;
+  projects         = data.projects;
+  activeProjectId  = data.activeProjectId || data.projects[0].id;
+  ganttSelectedIds = data.ganttSelectedIds || [data.projects[0].id];
+  _projIdSeq       = data._projIdSeq || (Math.max(...data.projects.map(p=>p.id))+1);
+  const _maxOtFs=data.projects.reduce((mx,p)=>Math.max(mx,...(p.ordenes||[]).map(o=>o.otNum||0)),0);
+  _otCounter=Math.max(_otCounter, _maxOtFs+1);
+  const _maxNpFs=data.projects.reduce((mx,p)=>Math.max(mx,...(p.notasPedido||[]).map(n=>n.npNum||0)),0);
+  _npCounter=Math.max(_npCounter, _maxNpFs+1);
+  if(data._proveedores && Array.isArray(data._proveedores)) _proveedores = data._proveedores;
+  // sanear referencias
+  if(!projects.find(p=>p.id===activeProjectId)) activeProjectId=projects[0].id;
+  ganttSelectedIds=ganttSelectedIds.filter(id=>projects.some(p=>p.id===id));
+  if(!ganttSelectedIds.length) ganttSelectedIds=[projects[0].id];
+  // Limpiar deps rotas en todos los proyectos
+  projects.forEach(p=>cleanBrokenDeps(p));
+  // Normalizar orders de runs (corrige fracciones de datos anteriores)
+  _normalizeAllRunOrders();
+  return true;
 }
 
 async function loadFromFirestore(){
@@ -6947,48 +7021,197 @@ async function loadFromFirestore(){
     const doc = await db.collection('usuarios').doc(_userId).get();
     if(doc.exists){
       const data=doc.data();
-      if(data.projects && Array.isArray(data.projects)){
-        projects         = data.projects;
-        activeProjectId  = data.activeProjectId || data.projects[0].id;
-        ganttSelectedIds = data.ganttSelectedIds || [data.projects[0].id];
-        _projIdSeq       = data._projIdSeq || (Math.max(...data.projects.map(p=>p.id))+1);
-        const _maxOtFs=data.projects.reduce((mx,p)=>Math.max(mx,...(p.ordenes||[]).map(o=>o.otNum||0)),0);
-        _otCounter=Math.max(_otCounter, _maxOtFs+1);
-        const _maxNpFs=data.projects.reduce((mx,p)=>Math.max(mx,...(p.notasPedido||[]).map(n=>n.npNum||0)),0);
-        _npCounter=Math.max(_npCounter, _maxNpFs+1);
-        if(data._proveedores && Array.isArray(data._proveedores)) _proveedores = data._proveedores;
-        // sanear referencias
-        if(!projects.find(p=>p.id===activeProjectId)) activeProjectId=projects[0].id;
-        ganttSelectedIds=ganttSelectedIds.filter(id=>projects.some(p=>p.id===id));
-        if(!ganttSelectedIds.length) ganttSelectedIds=[projects[0].id];
-        // Limpiar deps rotas en todos los proyectos
-        projects.forEach(p=>cleanBrokenDeps(p));
-        // Normalizar orders de runs (corrige fracciones de datos anteriores)
-        _normalizeAllRunOrders();
-      }
+      _applyLoadedData(data);
+      _localRev=data._rev||0;
+    } else {
+      _localRev=0;
     }
     // arrancar la app — habilitar sync ANTES de llamar setActiveProject
     _loadingData=false;
+    _hasUnsavedChanges=false;
     saveToFirestore(); // persiste contadores recalculados inmediatamente
     setActiveProject(activeProjectId);
     renderProjPanel();
     renderDashboard(); // actualizar dashboard con datos reales
-    showSyncIndicator('✓ Datos cargados','#e6f4ed','#1a7a4a');
+    setSyncState('synced');
+    _startRealtimeSync();
   }catch(e){
     console.error('Firestore load error:',e);
     _loadingData=false;
     // arrancar con datos actuales SIN disparar sync (evitar sobreescribir Firestore con estado vacío)
     _origSetActive(activeProjectId);
     renderProjPanel();
-    showSyncIndicator('⚠ Error al cargar datos','#fde8e8','#c0392b');
+    setSyncState('unsaved');
   }
 }
 
-function showSyncIndicator(msg, bg, color){
+// ── Actualización automática (onSnapshot) ──────────────────────
+function _anyModalOpen(){
+  return Array.from(document.querySelectorAll('[id^="modal-"]'))
+    .some(m=>m.style.display&&m.style.display!=='none');
+}
+
+function _startRealtimeSync(){
+  if(_unsubscribeSnapshot){_unsubscribeSnapshot();_unsubscribeSnapshot=null;}
+  _unsubscribeSnapshot=db.collection('usuarios').doc(_userId).onSnapshot(snap=>{
+    if(!snap.exists)return;
+    const data=snap.data();
+    const remoteRev=data._rev||0;
+    if(snap.metadata.hasPendingWrites)return;   // eco de nuestra propia escritura optimista
+    if(remoteRev===_localRev)return;            // confirmación de nuestra propia escritura, o evento repetido
+    if(_conflictOpen)return;                    // ya hay un conflicto esperando resolución
+    if(_hasUnsavedChanges||_anyModalOpen()){
+      _pendingRemoteInfo={remoteRev,remoteData:data};
+      showRemoteBanner();
+    } else {
+      _applyRemoteChangeSilently(data,remoteRev);
+    }
+  }, err=>{ console.error('Firestore onSnapshot error:',err); });
+}
+
+// Cambio remoto sin ediciones locales pendientes ni modales abiertos:
+// se aplica solo, sin cambiar de solapa ni de proyecto. _applyLoadedData trae
+// el activeProjectId/ganttSelectedIds de QUIEN GUARDÓ (otro dispositivo) —
+// hay que conservar la selección local si el proyecto sigue existiendo.
+function _applyRemoteChangeSilently(data,remoteRev){
+  const keepActiveProjectId=activeProjectId;
+  const keepGanttSelectedIds=ganttSelectedIds;
+  _loadingData=true;
+  _applyLoadedData(data);
+  if(projects.find(p=>p.id===keepActiveProjectId)) activeProjectId=keepActiveProjectId;
+  if(keepGanttSelectedIds&&keepGanttSelectedIds.length&&keepGanttSelectedIds.every(id=>projects.some(p=>p.id===id))){
+    ganttSelectedIds=keepGanttSelectedIds;
+  }
+  _localRev=remoteRev;
+  _loadingData=false;
+  renderActiveTab();
+  setSyncState('synced');
+  hideRemoteBanner();
+}
+
+function renderActiveTab(){
+  const activePane=document.querySelector('.pane.active');
+  if(!activePane)return;
+  const t=activePane.id.replace('pane-','');
+  if(t==='dashboard')renderDashboard();
+  else if(t==='gantt')renderGantt();
+  else if(t==='stock')renderStock();
+  else if(t==='historial')renderHistorial();
+  else if(t==='entregas')renderEntregas();
+  else if(t==='ot')renderOTTabla();
+  else if(t==='np')renderNPTabla();
+  else if(t==='pendientes')renderPendientes();
+  else if(t==='pizarra')renderPizarra();
+  else if(t==='config')renderSubList();
+}
+
+function showRemoteBanner(){
+  const el=document.getElementById('remote-change-banner');
+  if(el)el.style.display='block';
+}
+function hideRemoteBanner(){
+  const el=document.getElementById('remote-change-banner');
+  if(el)el.style.display='none';
+  _pendingRemoteInfo=null;
+}
+function onClickRemoteBanner(){
+  if(!_pendingRemoteInfo)return;
+  enterConflictState(_pendingRemoteInfo);
+}
+
+// ── Conflictos de sincronización ────────────────────────────────
+function enterConflictState(info){
+  _conflictOpen=true;
+  _conflictInfo=info;
+  clearTimeout(_saveTimer);
+  setSyncState('conflict');
+  const el=document.getElementById('remote-change-banner');
+  if(el)el.style.display='none';
+  const modal=document.getElementById('modal-sync-conflict');
+  if(modal)modal.style.display='flex';
+}
+function closeSyncConflictModal(){
+  const modal=document.getElementById('modal-sync-conflict');
+  if(modal)modal.style.display='none';
+}
+
+function _downloadLocalConflictBackup(){
+  const now=new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  const fname=`conflicto_local_${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.json`;
+  const payload={
+    version:2, ts:now.toISOString(),
+    projects, activeProjectId, ganttSelectedIds, _projIdSeq, _otCounter, _npCounter, _proveedores,
+    _rev:_localRev
+  };
+  const json=JSON.stringify(payload,null,2);
+  const blob=new Blob([json],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=fname;a.click();URL.revokeObjectURL(url);
+}
+
+// Opciones (a) y (b) del modal de conflicto: mismo resultado — bajar un
+// respaldo de lo local y después cargar los datos del servidor.
+function resolveConflict_discardLocal(){
+  if(!_conflictInfo)return;
+  _downloadLocalConflictBackup();
+  const finish=(data,rev)=>{
+    _loadingData=true;
+    _applyLoadedData(data);
+    _localRev=rev;
+    _loadingData=false;
+    _hasUnsavedChanges=false;
+    _conflictOpen=false;_conflictInfo=null;_pendingRemoteInfo=null;
+    closeSyncConflictModal();
+    saveToFirestore(); // persiste contadores recalculados, igual que al cargar
+    setActiveProject(activeProjectId);
+    renderProjPanel();
+    renderDashboard();
+    setSyncState('synced');
+  };
+  if(_conflictInfo.remoteData){
+    finish(_conflictInfo.remoteData,_conflictInfo.remoteRev);
+  } else {
+    db.collection('usuarios').doc(_userId).get().then(snap=>{
+      const data=snap.exists?snap.data():{projects:[makeProject('Proyecto')]};
+      finish(data,data._rev||0);
+    }).catch(e=>{
+      console.error('Error recargando tras conflicto:',e);
+      alert('No se pudo recargar desde el servidor: '+e.message);
+    });
+  }
+}
+
+// Opción (c): pisar lo del otro dispositivo con lo local, con confirmación explícita.
+function resolveConflict_forceOverwrite(){
+  if(!_conflictInfo)return;
+  if(!confirm('¿Seguro? Esto va a pisar los cambios guardados por el otro dispositivo con los tuyos.'))return;
+  _localRev=_conflictInfo.remoteRev; // adoptar el rev remoto para que la transacción no vuelva a fallar
+  _conflictOpen=false;_conflictInfo=null;_pendingRemoteInfo=null;
+  closeSyncConflictModal();
+  clearTimeout(_saveTimer);
+  saveToFirestore();
+}
+
+function setSyncState(state){
   const el=document.getElementById('sync-indicator');
-  el.textContent=msg; el.style.background=bg; el.style.color=color; el.style.opacity='1';
-  if(msg==='✓ Guardado'||msg==='✓ Datos cargados'){
-    setTimeout(()=>el.style.opacity='0', 2500);
+  if(!el)return;
+  el.onclick=null; el.style.cursor='default';
+  if(state==='synced'){
+    el.textContent='✓ Sincronizado';
+    el.style.background='#e6f4ed'; el.style.color='#1a7a4a';
+  } else if(state==='saving'){
+    el.textContent='● Guardando...';
+    el.style.background='#fef3e2'; el.style.color='#b8690a';
+  } else if(state==='unsaved'){
+    el.textContent='Cambios sin guardar';
+    el.style.background='#fef3e2'; el.style.color='#b8690a';
+  } else if(state==='conflict'){
+    el.textContent='⚠ Conflicto - hacé clic';
+    el.style.background='#fde8e8'; el.style.color='#c0392b';
+    el.style.cursor='pointer';
+    el.onclick=()=>{const m=document.getElementById('modal-sync-conflict');if(m)m.style.display='flex';};
   }
 }
 

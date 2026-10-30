@@ -209,7 +209,7 @@ input:focus,select:focus{outline:none;border-color:var(--gris-oscuro)}
 #login-btn:hover{background:#e5d830}
 #login-btn:disabled{background:#3a3a3a;color:#666;cursor:not-allowed}
 #login-spinner{display:none;text-align:center;color:var(--gris-medio);font-size:12px;margin-top:8px}
-#sync-indicator{position:fixed;bottom:12px;right:12px;font-size:11px;padding:5px 10px;border-radius:8px;font-weight:600;z-index:100;transition:opacity .5s}
+#sync-indicator{display:inline-flex;align-items:center;font-size:11px;padding:5px 10px;border-radius:8px;font-weight:600;white-space:nowrap;background:#e6f4ed;color:#1a7a4a}
 
 /* ── PIZARRA ── */
 #pizarra-fs-wrap{background:#fff;color:#1a1a1a}

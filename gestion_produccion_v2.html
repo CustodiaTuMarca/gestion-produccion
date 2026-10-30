@@ -8,7 +8,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-<link rel="stylesheet" href="gestion_produccion.css?v=20261035">
+<link rel="stylesheet" href="gestion_produccion.css?v=20261036">
 </head>
 <body>
 
@@ -31,8 +31,10 @@
   </div>
 </div>
 
-<!-- INDICADOR DE SYNC -->
-<div id="sync-indicator" style="opacity:0;background:#f3f3c0;color:#5a5000">✓ Guardado</div>
+<!-- BANNER: cambios remotos pendientes de aplicar -->
+<div id="remote-change-banner" onclick="onClickRemoteBanner()" style="display:none;position:fixed;top:0;left:0;right:0;z-index:5000;background:#2980b9;color:#fff;text-align:center;padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer">
+  🔄 Hay cambios nuevos de otro dispositivo — clic para revisar
+</div>
 <div class="app">
 
 <!-- HEADER ALEMI -->
@@ -46,6 +48,7 @@
   </div>
   <div class="app-header-actions">
     <button onclick="toggleProjPanel()" id="btn-proj-toggle" class="btn-header btn-header-primary">📁 Proyectos</button>
+    <div id="sync-indicator">✓ Sincronizado</div>
     <button onclick="doLogout()" class="btn-header btn-header-logout">Salir</button>
   </div>
 </div>
@@ -788,6 +791,30 @@
   </div>
 </div>
 
+<!-- MODAL CONFLICTO DE SINCRONIZACION -->
+<div id="modal-sync-conflict" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:3000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;padding:22px;width:440px;max-width:95vw;box-shadow:0 8px 32px rgba(0,0,0,.3)">
+    <div style="font-weight:700;font-size:15px;margin-bottom:8px;color:#c0392b">⚠ Conflicto de sincronización</div>
+    <div style="font-size:12px;color:#555;margin-bottom:16px">
+      Otro dispositivo guardó cambios sobre estos mismos datos. Elegí cómo seguir:
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button onclick="resolveConflict_discardLocal()" style="padding:10px;border:1.5px solid #2980b9;border-radius:8px;cursor:pointer;background:#fff;color:#2980b9;font-weight:700;font-size:13px;text-align:left">
+        ⬇ Recargar datos del servidor
+        <div style="font-weight:400;font-size:11px;color:#888;margin-top:2px">Descarga primero un respaldo de tus cambios locales y después carga lo del servidor.</div>
+      </button>
+      <button onclick="resolveConflict_discardLocal()" style="padding:10px;border:1.5px solid #2980b9;border-radius:8px;cursor:pointer;background:#fff;color:#2980b9;font-weight:700;font-size:13px;text-align:left">
+        💾 Descargar mis cambios y recargar
+        <div style="font-weight:400;font-size:11px;color:#888;margin-top:2px">Mismo resultado que la opción anterior.</div>
+      </button>
+      <button onclick="resolveConflict_forceOverwrite()" style="padding:10px;border:1.5px solid #c0392b;border-radius:8px;cursor:pointer;background:#fff;color:#c0392b;font-weight:700;font-size:13px;text-align:left">
+        ⚠ Guardar igual y pisar lo del otro
+        <div style="font-weight:400;font-size:11px;color:#888;margin-top:2px">Sobreescribe los cambios guardados por el otro dispositivo con los tuyos.</div>
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL COLA DE MAQUINA (reordenar runs) -->
 <div id="modal-queue" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:2000;align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:14px;padding:20px;width:480px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.2)">
@@ -970,6 +997,6 @@
 </div><!-- /.app -->
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="gestion_produccion.js?v=20261035"></script>
+<script src="gestion_produccion.js?v=20261036"></script>
 </body>
 </html>
