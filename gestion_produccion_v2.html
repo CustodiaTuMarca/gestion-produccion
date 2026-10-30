@@ -8,7 +8,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-<link rel="stylesheet" href="gestion_produccion.css?v=20261034">
+<link rel="stylesheet" href="gestion_produccion.css?v=20261035">
 </head>
 <body>
 
@@ -766,10 +766,15 @@
 <div id="modal-add-item" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:2000;align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:14px;padding:22px;width:420px;max-width:95vw;box-shadow:0 8px 32px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto">
     <div style="font-weight:700;font-size:15px;margin-bottom:14px">➕ Nuevo ítem</div>
-    <div class="field" style="margin-bottom:12px">
-      <label>Nombre del ítem</label>
-      <input type="text" id="ai-name" placeholder="Nombre del ítem..." style="width:100%">
+    <div class="field" style="margin-bottom:8px">
+      <label>Código</label>
+      <input type="text" id="ai-codigo" placeholder="Ej: LAM-MN1-040" style="width:100%" oninput="renderAddItemPreview()">
     </div>
+    <div class="field" style="margin-bottom:8px">
+      <label>Descripción <span style="color:#aaa;font-weight:400">(opcional)</span></label>
+      <input type="text" id="ai-desc" placeholder="Ej: POPET pasaje 9" style="width:100%" oninput="renderAddItemPreview()">
+    </div>
+    <div style="font-size:11px;color:#888;margin-bottom:14px">Nombre del ítem: <span id="ai-preview" style="font-weight:700;color:var(--negro)"></span></div>
     <div style="font-size:11px;font-weight:700;color:var(--gris-oscuro);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Procesos a generar (opcional)</div>
     <div id="ai-procs" style="display:flex;flex-direction:column;gap:2px;margin-bottom:12px"></div>
     <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#555;margin-bottom:16px">
@@ -965,6 +970,6 @@
 </div><!-- /.app -->
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="gestion_produccion.js?v=20261034"></script>
+<script src="gestion_produccion.js?v=20261035"></script>
 </body>
 </html>

@@ -714,14 +714,37 @@ let _addItemState={ocId:null,order:[],chain:true};
 
 function addItemToOC(ocId){
   _addItemState={ocId,order:[],chain:true};
-  const nameInput=document.getElementById('ai-name');
+  const codigoInput=document.getElementById('ai-codigo');
+  const descInput=document.getElementById('ai-desc');
   const chainInput=document.getElementById('ai-chain');
-  if(nameInput)nameInput.value='';
+  if(codigoInput)codigoInput.value='';
+  if(descInput)descInput.value='';
   if(chainInput)chainInput.checked=true;
   renderAddItemProcs();
+  renderAddItemPreview();
   const modal=document.getElementById('modal-add-item');
   if(modal)modal.style.display='flex';
-  if(nameInput)setTimeout(()=>nameInput.focus(),0);
+  if(codigoInput)setTimeout(()=>codigoInput.focus(),0);
+}
+
+// Código + N° de OC + Descripción (omitiendo los segmentos vacíos, sin espacios de más).
+function _addItemComputeName(){
+  const p=currentProject();
+  const oc=(p.ordenesCompra||[]).find(o=>o.id===_addItemState.ocId);
+  const codigoInput=document.getElementById('ai-codigo');
+  const descInput=document.getElementById('ai-desc');
+  const codigo=((codigoInput&&codigoInput.value)||'').trim();
+  const descripcion=((descInput&&descInput.value)||'').trim();
+  const ocNumero=(oc&&oc.numero)?String(oc.numero).trim():'';
+  const nombre=[codigo,ocNumero,descripcion].filter(Boolean).join(' ');
+  return{codigo,descripcion,nombre};
+}
+
+function renderAddItemPreview(){
+  const el=document.getElementById('ai-preview');
+  if(!el)return;
+  const{nombre}=_addItemComputeName();
+  el.textContent=nombre||'(ingresá el código)';
 }
 
 function closeAddItemModal(){
@@ -759,18 +782,18 @@ function renderAddItemProcs(){
 function confirmAddItem(){
   const p=currentProject();
   const ocId=_addItemState.ocId;
-  const nameInput=document.getElementById('ai-name');
+  const{codigo,descripcion,nombre}=_addItemComputeName();
+  if(!codigo){alert('Ingresá el código del ítem.');return;}
   const chainInput=document.getElementById('ai-chain');
-  const name=((nameInput&&nameInput.value)||'').trim()||'Nuevo ítem';
   const chain=!!(chainInput&&chainInput.checked);
 
   const subId=++p._subId;
-  p.subconjuntos.push({id:subId,name,qty:1,ocId});
+  p.subconjuntos.push({id:subId,name:nombre,qty:1,ocId,codigo,descripcion});
 
   let prevId=null;
   _addItemState.order.forEach(proc=>{
     const prefijo=ITEM_PROCESO_PREFIJO[proc]||'';
-    const compName=prefijo?`${prefijo} ${name}`:name;
+    const compName=prefijo?`${prefijo} ${nombre}`:nombre;
     const deps=(chain&&prevId)?[prevId]:[];
     const id=++cpId;
     components.push({id,subId,name:compName,machine:proc,qty:1,mins:0,dias:1,deps,runs:[]});
