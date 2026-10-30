@@ -689,11 +689,13 @@
       <button onclick="togglePizarraFullscreen()" style="font-size:12px;font-weight:600;color:var(--negro);background:var(--amarillo);border:none;border-radius:6px;padding:5px 14px;cursor:pointer">⛶ Pantalla completa</button>
     </div>
   </div>
-  <input id="pizarra-filter-text" type="text" placeholder="Buscar por N° de OT, cliente, OC, código o descripción..."
-    style="width:100%;font-size:12px;margin-bottom:12px"
-    oninput="renderPizarra()">
   <div id="pizarra-fs-wrap">
-    <button id="pizarra-fs-exit" onclick="togglePizarraFullscreen()">✕ Salir de pantalla completa</button>
+    <div id="pizarra-fs-bar">
+      <input id="pizarra-filter-text" type="text" placeholder="Buscar por N° de OT, cliente, OC, código o descripción..."
+        style="flex:1;font-size:12px"
+        oninput="renderPizarra()">
+      <button id="pizarra-fs-exit" onclick="togglePizarraFullscreen()">✕ Salir de pantalla completa</button>
+    </div>
     <div id="pizarra-content"></div>
   </div>
 </div>
