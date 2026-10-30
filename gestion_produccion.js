@@ -5331,11 +5331,21 @@ function _pizarraProcesoEstado(ot,proj){
   return result;
 }
 
-function _pizarraCircle(estado){
+function _pizarraCircle(estado,size){
   if(estado===null||estado===undefined) return '';
+  size=size||26;
+  const base=`display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;font-weight:800;color:#fff;font-size:${Math.round(size*0.55)}px;print-color-adjust:exact;-webkit-print-color-adjust:exact`;
   return estado==='verde'
-    ?'<span class="piz-circle piz-green">✓</span>'
-    :'<span class="piz-circle piz-red"></span>';
+    ?`<span style="${base};background:#1a7a4a">✓</span>`
+    :`<span style="${base};background:#c0392b"></span>`;
+}
+
+// Pantalla normal: columnas de proceso 80px / círculo 26px.
+// Pantalla completa (clase puesta por _pizarraApplyFullscreenStyles): 110px / 36px.
+function _pizarraSizes(){
+  const wrap=document.getElementById('pizarra-fs-wrap');
+  const isFs=!!wrap&&wrap.classList.contains('pizarra-fs-active');
+  return isFs?{proc:110,circle:36}:{proc:80,circle:26};
 }
 
 // Reúne las OTs abiertas (no completadas ni anuladas) de todos los proyectos,
@@ -5367,26 +5377,33 @@ function renderPizarra(){
     return;
   }
 
-  const trs=rows.map(({ot,proj})=>{
+  const{proc:procW,circle:circleSize}=_pizarraSizes();
+  const rowBorder='border-bottom:1px solid #ddd';
+  const procTdStyle=`${rowBorder};width:${procW}px;text-align:center;vertical-align:middle`;
+  const procThStyle=`width:${procW}px;text-align:center;vertical-align:middle`;
+
+  const trs=rows.map(({ot,proj},i)=>{
     const procEstado=_pizarraProcesoEstado(ot,proj);
-    return `<tr>
-      <td class="piz-num">${ot.otNum}</td>
-      <td class="piz-ell" title="${ot.cliente||''}">${ot.cliente||''}</td>
-      <td class="piz-ell" title="${ot.docAsoc||''}">${ot.docAsoc||''}</td>
-      <td class="piz-ell" title="${ot.pieza||''}">${ot.pieza||''}</td>
-      <td class="piz-ell" title="${ot.descripcion||''}">${ot.descripcion||''}</td>
-      <td class="piz-num">${ot.unidades||''}</td>
-      <td class="piz-proc">${_pizarraCircle(procEstado.Torno)}</td>
-      <td class="piz-proc">${_pizarraCircle(procEstado.Centro)}</td>
-      <td class="piz-proc">${_pizarraCircle(procEstado.Roscado)}</td>
-      <td class="piz-proc">${_pizarraCircle(procEstado.Soldadura)}</td>
+    const trStyle=i%2===1?'background:#f5f5f3':'background:#ffffff';
+    return `<tr style="${trStyle}">
+      <td class="piz-num" style="${rowBorder}">${ot.otNum}</td>
+      <td class="piz-ell" style="${rowBorder}" title="${ot.cliente||''}">${ot.cliente||''}</td>
+      <td class="piz-ell" style="${rowBorder}" title="${ot.docAsoc||''}">${ot.docAsoc||''}</td>
+      <td class="piz-ell" style="${rowBorder}" title="${ot.pieza||''}">${ot.pieza||''}</td>
+      <td class="piz-ell" style="${rowBorder}" title="${ot.descripcion||''}">${ot.descripcion||''}</td>
+      <td class="piz-num" style="${rowBorder}">${ot.unidades||''}</td>
+      <td class="piz-proc" style="${procTdStyle}">${_pizarraCircle(procEstado.Torno,circleSize)}</td>
+      <td class="piz-proc" style="${procTdStyle}">${_pizarraCircle(procEstado.Centro,circleSize)}</td>
+      <td class="piz-proc" style="${procTdStyle}">${_pizarraCircle(procEstado.Roscado,circleSize)}</td>
+      <td class="piz-proc" style="${procTdStyle}">${_pizarraCircle(procEstado.Soldadura,circleSize)}</td>
     </tr>`;
   }).join('');
 
-  el.innerHTML=`<table class="piz-table">
+  el.innerHTML=`<table class="piz-table" style="table-layout:fixed;width:100%;border-collapse:collapse">
     <thead><tr>
       <th>N° OT</th><th>Cliente</th><th>OC cliente</th><th>Código/pieza</th><th>Descripción</th>
-      <th>Cant.</th><th>Torno</th><th>Centro</th><th>Roscado</th><th>Soldadura</th>
+      <th>Cant.</th>
+      <th style="${procThStyle}">Torno</th><th style="${procThStyle}">Centro</th><th style="${procThStyle}">Roscado</th><th style="${procThStyle}">Soldadura</th>
     </tr></thead>
     <tbody>${trs}</tbody>
   </table>`;
@@ -5433,6 +5450,7 @@ function _pizarraApplyFullscreenStyles(active){
       ['position','top','right','zIndex','background','color','fontWeight','fontSize','border','borderRadius','padding','cursor'].forEach(p=>{exitBtn.style[p]='';});
     }
   }
+  renderPizarra(); // re-genera la tabla con el ancho de columna/círculo que corresponda
 }
 ['fullscreenchange','webkitfullscreenchange'].forEach(evt=>{
   document.addEventListener(evt,()=>{
@@ -5456,10 +5474,10 @@ function printPizarra(){
       <td class="piz-ell">${ot.pieza||''}</td>
       <td class="piz-ell">${ot.descripcion||''}</td>
       <td class="piz-num">${ot.unidades||''}</td>
-      <td class="piz-proc">${_pizarraCircle(procEstado.Torno)}</td>
-      <td class="piz-proc">${_pizarraCircle(procEstado.Centro)}</td>
-      <td class="piz-proc">${_pizarraCircle(procEstado.Roscado)}</td>
-      <td class="piz-proc">${_pizarraCircle(procEstado.Soldadura)}</td>
+      <td class="piz-proc">${_pizarraCircle(procEstado.Torno,14)}</td>
+      <td class="piz-proc">${_pizarraCircle(procEstado.Centro,14)}</td>
+      <td class="piz-proc">${_pizarraCircle(procEstado.Roscado,14)}</td>
+      <td class="piz-proc">${_pizarraCircle(procEstado.Soldadura,14)}</td>
     </tr>`;
   }).join('');
 
