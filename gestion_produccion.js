@@ -125,22 +125,23 @@ function fmtHrs(h){const d=Math.floor((h||0)/HRS_PER_DAY);const r=(h||0)%HRS_PER
 function tp(n){let d=new Date(today);for(let i=0;i<n;i++){d=nextWorkingDay(d);}return dateStr(skipToWorkingDay(d))}
 
 // Máquinas con recurso único (no se superponen en Gantt)
-const MAQUINAS_SERIE=['Corte','Torno','Centro','Soldadura','Ensamble'];
+const MAQUINAS_SERIE=['Corte','Torno','Centro','Roscado','Soldadura','Ensamble'];
 // Máquinas con tiempo en días (independiente de cantidad)
 const MAQUINAS_DIAS=['Compra MP','Trabajos de Terceros','MP Provista por Cliente'];
-const MACHINES=['Compra MP','Corte','Torno','Centro','Soldadura','Ensamble','Trabajos de Terceros','MP Provista por Cliente'];
+const MACHINES=['Compra MP','Corte','Torno','Centro','Roscado','Soldadura','Ensamble','Trabajos de Terceros','MP Provista por Cliente'];
 // Color fijo por máquina/proceso — consistente en todo el Gantt
 const MACHINE_COLORS={
   'Compra MP':     '#f0b27a',
   'Corte':         '#e67e22',  // naranja oscuro
   'Torno':         '#5dade2',
   'Centro':        '#58d68d',
+  'Roscado':       '#f39c12',
   'Soldadura':     '#ec7063',
   'Ensamble':      '#bb8fce',
   'Trabajos de Terceros': '#76d7c4',
   'MP Provista por Cliente': '#f7dc6f',
 };
-const MICON={'Compra MP':'🛒','Corte':'✂️','Torno':'🔩','Centro':'⚙️','Soldadura':'🔥','Ensamble':'🔧','Trabajos de Terceros':'🏭','MP Provista por Cliente':'📦'};
+const MICON={'Compra MP':'🛒','Corte':'✂️','Torno':'🔩','Centro':'⚙️','Roscado':'🔗','Soldadura':'🔥','Ensamble':'🔧','Trabajos de Terceros':'🏭','MP Provista por Cliente':'📦'};
 const SUBCOLORS=['#2980b9','#1a7a4a','#8e44ad','#d68910','#c0392b','#16a085','#d35400','#1a5276'];
 const COMPCOLORS=['#5dade2','#58d68d','#bb8fce','#f0b27a','#ec7063','#76d7c4','#f1948a','#82e0aa','#85c1e9','#a9cce3'];
 const DEPOSITOS=['Alemi','Rectificado','Pintura','Gustavo','Tratamiento Termico','Proveedor','En transito'];
@@ -4512,7 +4513,7 @@ function exportGanttExcel(){
   // colorear encabezado
   const hdrStyle={font:{bold:true},fill:{fgColor:{rgb:'1A1A1A'}},font2:{color:{rgb:'FFFFFF'}}};
   // colorear filas por máquina
-  const MC={'Compra MP':'F0B27A','Torno':'5DADE2','Centro':'58D68D','Soldadura':'EC7063','Ensamble':'BB8FCE','Trabajos de Terceros':'76D7C4','MP Provista por Cliente':'F7DC6F'};
+  const MC={'Compra MP':'F0B27A','Torno':'5DADE2','Centro':'58D68D','Roscado':'F39C12','Soldadura':'EC7063','Ensamble':'BB8FCE','Trabajos de Terceros':'76D7C4','MP Provista por Cliente':'F7DC6F'};
   rows.forEach((r,i)=>{
     if(i===0)return;
     const maq=r[3];
@@ -4554,7 +4555,7 @@ function exportGanttExcel(){
       });
     });
     const ws2=XLSX.utils.aoa_to_sheet(mapRows);
-    const MC2={'Compra MP':'F0B27A','Torno':'5DADE2','Centro':'58D68D','Soldadura':'EC7063','Ensamble':'BB8FCE','Trabajos de Terceros':'76D7C4','MP Provista por Cliente':'F7DC6F'};
+    const MC2={'Compra MP':'F0B27A','Torno':'5DADE2','Centro':'58D68D','Roscado':'F39C12','Soldadura':'EC7063','Ensamble':'BB8FCE','Trabajos de Terceros':'76D7C4','MP Provista por Cliente':'F7DC6F'};
     ws2['!cols']=[{wch:18},{wch:20},{wch:18},{wch:22},...workDays.map(()=>({wch:4}))];
     // colorear celdas activas con el color de la máquina
     mapRows.forEach((r,ri)=>{
@@ -4784,6 +4785,7 @@ function _fillOTDefaultsFromComponent(compId,runId){
   document.getElementById('ot-hproc').value=fmtDur(durMins);
   // pre-tildar SOLO el proceso del componente actual
   const chkMap={'Torno':'ot-chk-torno','Centro':'ot-chk-centro',
+    'Roscado':'ot-chk-roscado',
     'Soldadura':'ot-chk-soldadura','Ensamble':'ot-chk-centro',
     'Compra MP':'ot-chk-corte'};
   if(chkMap[comp.machine])document.getElementById(chkMap[comp.machine]).checked=true;
@@ -6163,7 +6165,7 @@ function _renderDashboardContent(el){
 
   // ── 1. En producción hoy ──────────────────────────────────
   // Runs de Corte/Torno/Centro/Soldadura con fecha inicio <= hoy y sin stock completo
-  const SERIE_HOY=['Corte','Torno','Centro','Soldadura'];
+  const SERIE_HOY=['Corte','Torno','Centro','Roscado','Soldadura'];
   const enProduccionHoy=[];
   // Usar los bloques del Gantt para tener la fecha real de inicio (no run.fecha)
   blocks.forEach(b=>{
@@ -6377,14 +6379,15 @@ function _renderDashboardContent(el){
     </div>`;
   }
 
-  // ── Ocupación mensual: Torno y Centro ────────────────────
-  const MAQ_OCUP=['Torno','Centro'];
+  // ── Ocupación mensual: Torno, Centro y Roscado ───────────
+  const MAQ_OCUP=['Torno','Centro','Roscado'];
   const mesActual={y:hoy.getFullYear(), m:hoy.getMonth()};
   const mesProx=mesActual.m===11?{y:mesActual.y+1,m:0}:{y:mesActual.y,m:mesActual.m+1};
   const mesesNombres=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
   // ocup[mesKey][maq][projName] = horas — usando fecha real del bloque Gantt (b.start.date)
-  const ocup={actual:{Torno:{},Centro:{}},proximo:{Torno:{},Centro:{}}};
+  const ocup={actual:{},proximo:{}};
+  MAQ_OCUP.forEach(maq=>{ ocup.actual[maq]={}; ocup.proximo[maq]={}; });
 
   blocks.forEach(b=>{
     if(!MAQ_OCUP.includes(b.machine)) return;
@@ -6401,9 +6404,9 @@ function _renderDashboardContent(el){
     ocup[mesKey][b.machine][proj.name]=(ocup[mesKey][b.machine][proj.name]||0)+hs;
   });
 
-  // Horas sin programar: componentes Torno/Centro de sinRun
-  const sinProgr={Torno:0,Centro:0};
-  const sinProgrByProj={Torno:{},Centro:{}};
+  // Horas sin programar: componentes Torno/Centro/Roscado de sinRun
+  const sinProgr={}; const sinProgrByProj={};
+  MAQ_OCUP.forEach(maq=>{ sinProgr[maq]=0; sinProgrByProj[maq]={}; });
   sinRun.forEach(({comp,sub,proj})=>{
     if(!MAQ_OCUP.includes(comp.machine)) return;
     const subQty=sub?(sub.qty||1):1;
@@ -6414,13 +6417,14 @@ function _renderDashboardContent(el){
 
   function fmtHs(h){return h>=1?h.toFixed(1)+'h':Math.round(h*60)+'min';}
 
+  function machineBox(maq,col,hs,n){
+    return `<div style="background:${col}11;border:1.5px solid ${col}33;border-radius:8px;padding:10px;text-align:center">
+          <div style="font-size:10px;font-weight:700;color:#888;margin-bottom:3px">${MICON[maq]||''} ${maq}</div>
+          <div style="font-size:22px;font-weight:900;color:${col}">${fmtHs(hs)}</div>
+          <div style="font-size:9px;color:#aaa;margin-top:2px">${n} proy.</div>
+        </div>`;
+  }
   function mesCard(mesKey,label){
-    const colT=MACHINE_COLORS['Torno']||'#5dade2';
-    const colC=MACHINE_COLORS['Centro']||'#58d68d';
-    const totalT=Object.values(ocup[mesKey]['Torno']).reduce((s,h)=>s+h,0);
-    const totalC=Object.values(ocup[mesKey]['Centro']).reduce((s,h)=>s+h,0);
-    const nT=Object.keys(ocup[mesKey]['Torno']).length;
-    const nC=Object.keys(ocup[mesKey]['Centro']).length;
     const detailId='ocup-mes-detail-'+mesKey;
     function machineRows(maq,col){
       const byProj=ocup[mesKey][maq]||{};
@@ -6429,33 +6433,25 @@ function _renderDashboardContent(el){
       const tot=Object.values(byProj).reduce((s,h)=>s+h,0);
       return `<div style="margin-bottom:8px"><div style="font-size:10px;font-weight:700;color:${col};margin-bottom:3px">${MICON[maq]||''} ${maq}</div>${rows||'<div style="font-size:10px;color:#aaa;padding:2px 0">Sin runs este mes</div>'}<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;padding-top:4px;margin-top:3px;border-top:1.5px solid #eee"><span>Subtotal</span><span style="color:${col}">${fmtHs(tot)}</span></div></div>`;
     }
+    const boxesHtml=MAQ_OCUP.map(maq=>{
+      const col=MACHINE_COLORS[maq]||'#aaa';
+      const tot=Object.values(ocup[mesKey][maq]).reduce((s,h)=>s+h,0);
+      const n=Object.keys(ocup[mesKey][maq]).length;
+      return machineBox(maq,col,tot,n);
+    }).join('');
     return `<div style="background:#fff;border-radius:12px;border:1.5px solid #ddd;border-top:4px solid var(--amarillo);padding:14px 16px">
       <div style="font-weight:800;font-size:13px;color:var(--negro);margin-bottom:10px">📅 ${label}</div>
-      <div onclick="(function(){var d=document.getElementById('${detailId}');d.style.display=d.style.display==='none'?'block':'none';})()" style="cursor:pointer;display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px">
-        <div style="background:${colT}11;border:1.5px solid ${colT}33;border-radius:8px;padding:10px;text-align:center">
-          <div style="font-size:10px;font-weight:700;color:#888;margin-bottom:3px">${MICON['Torno']||''} Torno</div>
-          <div style="font-size:22px;font-weight:900;color:${colT}">${fmtHs(totalT)}</div>
-          <div style="font-size:9px;color:#aaa;margin-top:2px">${nT} proy.</div>
-        </div>
-        <div style="background:${colC}11;border:1.5px solid ${colC}33;border-radius:8px;padding:10px;text-align:center">
-          <div style="font-size:10px;font-weight:700;color:#888;margin-bottom:3px">${MICON['Centro']||''} Centro</div>
-          <div style="font-size:22px;font-weight:900;color:${colC}">${fmtHs(totalC)}</div>
-          <div style="font-size:9px;color:#aaa;margin-top:2px">${nC} proy.</div>
-        </div>
+      <div onclick="(function(){var d=document.getElementById('${detailId}');d.style.display=d.style.display==='none'?'block':'none';})()" style="cursor:pointer;display:grid;grid-template-columns:repeat(${MAQ_OCUP.length},1fr);gap:8px;margin-bottom:4px">
+        ${boxesHtml}
       </div>
       <div style="font-size:9px;color:#aaa;text-align:center;margin-bottom:6px">↑ Clic para ver detalle por proyecto</div>
       <div id="${detailId}" style="display:none;background:#fafaf8;border:1px solid #eee;border-radius:6px;padding:8px 10px">
-        ${machineRows('Torno',colT)}
-        ${machineRows('Centro',colC)}
+        ${MAQ_OCUP.map(maq=>machineRows(maq,MACHINE_COLORS[maq]||'#aaa')).join('')}
       </div>
     </div>`;
   }
 
   function sinProgrCard(){
-    const colT=MACHINE_COLORS['Torno']||'#5dade2';
-    const colC=MACHINE_COLORS['Centro']||'#58d68d';
-    const nT=Object.keys(sinProgrByProj['Torno']).length;
-    const nC=Object.keys(sinProgrByProj['Centro']).length;
     const detailId='ocup-mes-detail-sinprogr';
     function machineRows(maq,col){
       const byProj=sinProgrByProj[maq]||{};
@@ -6464,30 +6460,25 @@ function _renderDashboardContent(el){
       const tot=Object.values(byProj).reduce((s,h)=>s+h,0);
       return `<div style="margin-bottom:8px"><div style="font-size:10px;font-weight:700;color:${col};margin-bottom:3px">${MICON[maq]||''} ${maq}</div>${rows||'<div style="font-size:10px;color:#aaa;padding:2px 0">Sin componentes pendientes</div>'}<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;padding-top:4px;margin-top:3px;border-top:1.5px solid #eee"><span>Subtotal</span><span style="color:${col}">${fmtHs(tot)}</span></div></div>`;
     }
+    const boxesHtml=MAQ_OCUP.map(maq=>{
+      const col=MACHINE_COLORS[maq]||'#aaa';
+      const n=Object.keys(sinProgrByProj[maq]).length;
+      return machineBox(maq,col,sinProgr[maq],n);
+    }).join('');
     return `<div style="background:#fff;border-radius:12px;border:1.5px solid #e0983333;border-top:4px solid #e09833;padding:14px 16px">
       <div style="font-weight:800;font-size:13px;color:var(--negro);margin-bottom:10px">⚠ Sin programar</div>
-      <div onclick="(function(){var d=document.getElementById('${detailId}');d.style.display=d.style.display==='none'?'block':'none';})()" style="cursor:pointer;display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px">
-        <div style="background:${colT}11;border:1.5px solid ${colT}33;border-radius:8px;padding:10px;text-align:center">
-          <div style="font-size:10px;font-weight:700;color:#888;margin-bottom:3px">${MICON['Torno']||''} Torno</div>
-          <div style="font-size:22px;font-weight:900;color:${colT}">${fmtHs(sinProgr['Torno'])}</div>
-          <div style="font-size:9px;color:#aaa;margin-top:2px">${nT} proy.</div>
-        </div>
-        <div style="background:${colC}11;border:1.5px solid ${colC}33;border-radius:8px;padding:10px;text-align:center">
-          <div style="font-size:10px;font-weight:700;color:#888;margin-bottom:3px">${MICON['Centro']||''} Centro</div>
-          <div style="font-size:22px;font-weight:900;color:${colC}">${fmtHs(sinProgr['Centro'])}</div>
-          <div style="font-size:9px;color:#aaa;margin-top:2px">${nC} proy.</div>
-        </div>
+      <div onclick="(function(){var d=document.getElementById('${detailId}');d.style.display=d.style.display==='none'?'block':'none';})()" style="cursor:pointer;display:grid;grid-template-columns:repeat(${MAQ_OCUP.length},1fr);gap:8px;margin-bottom:4px">
+        ${boxesHtml}
       </div>
       <div style="font-size:9px;color:#aaa;text-align:center;margin-bottom:6px">↑ Clic para ver detalle por proyecto</div>
       <div id="${detailId}" style="display:none;background:#fafaf8;border:1px solid #eee;border-radius:6px;padding:8px 10px">
-        ${machineRows('Torno',colT)}
-        ${machineRows('Centro',colC)}
+        ${MAQ_OCUP.map(maq=>machineRows(maq,MACHINE_COLORS[maq]||'#aaa')).join('')}
       </div>
     </div>`;
   }
 
   const ocupacionHtml=`<div style="margin-bottom:18px">
-    <div style="font-size:10px;font-weight:700;color:var(--gris-oscuro);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid var(--amarillo);display:inline-block">Ocupación Torno &amp; Centro</div>
+    <div style="font-size:10px;font-weight:700;color:var(--gris-oscuro);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid var(--amarillo);display:inline-block">Ocupación Torno, Centro &amp; Roscado</div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
       ${mesCard('actual',mesesNombres[mesActual.m]+' '+mesActual.y)}
       ${mesCard('proximo',mesesNombres[mesProx.m]+' '+mesProx.y)}
