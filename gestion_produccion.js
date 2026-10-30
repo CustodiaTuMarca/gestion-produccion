@@ -142,6 +142,20 @@ const MACHINE_COLORS={
   'MP Provista por Cliente': '#f7dc6f',
 };
 const MICON={'Compra MP':'🛒','Corte':'✂️','Torno':'🔩','Centro':'⚙️','Roscado':'🔗','Soldadura':'🔥','Ensamble':'🔧','Trabajos de Terceros':'🏭','MP Provista por Cliente':'📦'};
+
+// Procesos ofrecidos al crear un ítem de OC (checkboxes del modal "+ ítem")
+// y prefijo que se antepone al nombre del componente generado.
+const ITEM_PROCESOS=['Compra MP','MP Provista por Cliente','Corte','Torno','Centro','Roscado','Soldadura','Trabajos de Terceros'];
+const ITEM_PROCESO_PREFIJO={
+  'Compra MP':'MP',
+  'MP Provista por Cliente':'MPC',
+  'Corte':'CO',
+  'Torno':'TO',
+  'Centro':'CE',
+  'Roscado':'RO',
+  'Soldadura':'SO',
+  'Trabajos de Terceros':'TT'
+};
 const SUBCOLORS=['#2980b9','#1a7a4a','#8e44ad','#d68910','#c0392b','#16a085','#d35400','#1a5276'];
 const COMPCOLORS=['#5dade2','#58d68d','#bb8fce','#f0b27a','#ec7063','#76d7c4','#f1948a','#82e0aa','#85c1e9','#a9cce3'];
 const DEPOSITOS=['Alemi','Rectificado','Pintura','Gustavo','Tratamiento Termico','Proveedor','En transito'];
@@ -695,10 +709,77 @@ function logOCEdit(ocId){
     `${oc.descripcion||''}${oc.cliente?' · Cliente: '+oc.cliente:''} · ×${oc.qty||1}`,'');
 }
 
+// ── Modal "+ ítem" en OC: nombre + checkboxes de procesos a generar ──
+let _addItemState={ocId:null,order:[],chain:true};
+
 function addItemToOC(ocId){
+  _addItemState={ocId,order:[],chain:true};
+  const nameInput=document.getElementById('ai-name');
+  const chainInput=document.getElementById('ai-chain');
+  if(nameInput)nameInput.value='';
+  if(chainInput)chainInput.checked=true;
+  renderAddItemProcs();
+  const modal=document.getElementById('modal-add-item');
+  if(modal)modal.style.display='flex';
+  if(nameInput)setTimeout(()=>nameInput.focus(),0);
+}
+
+function closeAddItemModal(){
+  const modal=document.getElementById('modal-add-item');
+  if(modal)modal.style.display='none';
+}
+
+// Tilda/destilda un proceso: el orden de la lista es el orden de clic
+// (al destildar se quita ese proceso y los demás conservan su orden relativo).
+function toggleAddItemProc(proc,checked){
+  if(checked){
+    if(!_addItemState.order.includes(proc))_addItemState.order.push(proc);
+  } else {
+    _addItemState.order=_addItemState.order.filter(p=>p!==proc);
+  }
+  renderAddItemProcs();
+}
+
+function renderAddItemProcs(){
+  const el=document.getElementById('ai-procs');
+  if(!el)return;
+  el.innerHTML=ITEM_PROCESOS.map(proc=>{
+    const ord=_addItemState.order.indexOf(proc);
+    const checked=ord>=0;
+    const badge=checked
+      ?`<span style="font-size:10px;font-weight:700;background:#1a1a1a;color:#f3e64a;border-radius:50%;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center">${ord+1}</span>`
+      :'';
+    return `<label style="display:flex;align-items:center;gap:6px;font-size:12px;padding:3px 0">
+      <input type="checkbox" ${checked?'checked':''} onchange="toggleAddItemProc('${proc}',this.checked)">
+      ${proc}${badge}
+    </label>`;
+  }).join('');
+}
+
+function confirmAddItem(){
   const p=currentProject();
-  p.subconjuntos.push({id:++p._subId, name:'Nuevo ítem', qty:1, ocId});
-  _ocItemsExpanded.add(ocId); // expandir la OC para que el nuevo ítem sea visible
+  const ocId=_addItemState.ocId;
+  const nameInput=document.getElementById('ai-name');
+  const chainInput=document.getElementById('ai-chain');
+  const name=((nameInput&&nameInput.value)||'').trim()||'Nuevo ítem';
+  const chain=!!(chainInput&&chainInput.checked);
+
+  const subId=++p._subId;
+  p.subconjuntos.push({id:subId,name,qty:1,ocId});
+
+  let prevId=null;
+  _addItemState.order.forEach(proc=>{
+    const prefijo=ITEM_PROCESO_PREFIJO[proc]||'';
+    const compName=prefijo?`${prefijo} ${name}`:name;
+    const deps=(chain&&prevId)?[prevId]:[];
+    const id=++cpId;
+    components.push({id,subId,name:compName,machine:proc,qty:1,mins:0,dias:1,deps,runs:[]});
+    prevId=id;
+  });
+
+  _configExpanded.add(subId);   // expandir el ítem para ver los componentes nuevos
+  _ocItemsExpanded.add(ocId);   // expandir la OC para que el ítem sea visible
+  closeAddItemModal();
   renderOCList();
   scheduleSync();
 }
