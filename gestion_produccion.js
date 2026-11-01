@@ -426,6 +426,8 @@ function clearLog(){
 }
 function renderHistorial(){
   renderUltimoBackup();
+  const _dsEl=document.getElementById('doc-size-indicator-hist');
+  if(_dsEl) _dsEl.innerHTML=_docSizeIndicatorHTML();
   const list=logFilter==='all'?movLog:movLog.filter(e=>e.tipo===logFilter);
   document.getElementById('log-count').textContent=`${list.length} registro${list.length!==1?'s':''}`;
   if(!list.length){
@@ -6850,6 +6852,8 @@ function _renderDashboardContent(el){
       <button onclick="renderDashboard()" style="font-size:11px;padding:4px 12px;border:1px solid #ddd;border-radius:6px;cursor:pointer;background:#fff;color:#555">↺ Actualizar</button>
     </div>
 
+    <div id="doc-size-indicator-dash">${_docSizeIndicatorHTML()}</div>
+
     ${ocupacionHtml}
 
     ${metricasHtml}
@@ -6979,6 +6983,7 @@ async function saveToFirestore(ticket){
     });
     _localRev=newRev;
     clearSaveErrorState();
+    computeDocSizeEstimate();
     if(ticket===_syncTicket){
       _hasUnsavedChanges=false;
       setSyncState('synced');
@@ -7063,6 +7068,77 @@ function closeSaveErrorModal(){
 function retrySaveNow(){
   closeSaveErrorModal();
   saveToFirestore();
+}
+
+// ── Estimación de tamaño del documento según reglas de Firestore ──
+// nombre de campo = bytes UTF-8 + 1 · string = bytes UTF-8 + 1 · number = 8
+// boolean/null = 1 · cada map (objeto) = 32 de overhead · array = suma de sus elementos
+const FIRESTORE_DOC_LIMIT_BYTES=1048576; // 1 MiB
+const _sizeTextEncoder=new TextEncoder();
+let _docSizeInfo=null; // {bytes,pct,topSection:{name,bytes}} — se recalcula solo al guardar/cargar
+const SIZE_SECTION_LABELS={
+  movLog:'Historial (movLog)', components:'Componentes', ordenes:'Órdenes de trabajo',
+  notasPedido:'Notas de pedido', entregas:'Entregas', stockDep:'Stock por depósito',
+  subconjuntos:'Subconjuntos', otros:'Otros campos del proyecto'
+};
+
+function _fsValueSize(v){
+  if(v===null||v===undefined) return 1;
+  const t=typeof v;
+  if(t==='string') return _sizeTextEncoder.encode(v).length+1;
+  if(t==='number') return 8;
+  if(t==='boolean') return 1;
+  if(Array.isArray(v)){
+    let s=0;
+    for(let i=0;i<v.length;i++) s+=_fsValueSize(v[i]);
+    return s;
+  }
+  if(t==='object'){
+    let s=32;
+    for(const k of Object.keys(v)){
+      s+=_sizeTextEncoder.encode(k).length+1;
+      s+=_fsValueSize(v[k]);
+    }
+    return s;
+  }
+  return 0;
+}
+
+function computeDocSizeEstimate(){
+  const payload={projects, activeProjectId, ganttSelectedIds, _projIdSeq, _otCounter, _npCounter, _proveedores};
+  const bytes=_fsValueSize(payload);
+  const sectionTotals={movLog:0,components:0,ordenes:0,notasPedido:0,entregas:0,stockDep:0,subconjuntos:0,otros:0};
+  for(const p of projects){
+    let known=0;
+    for(const k of ['movLog','components','ordenes','notasPedido','entregas','stockDep','subconjuntos']){
+      const v=p[k];
+      if(v===undefined) continue;
+      const sz=_sizeTextEncoder.encode(k).length+1+_fsValueSize(v);
+      sectionTotals[k]+=sz;
+      known+=sz;
+    }
+    sectionTotals.otros += _fsValueSize(p) - known;
+  }
+  let topKey='otros', topVal=-1;
+  for(const k in sectionTotals){ if(sectionTotals[k]>topVal){topVal=sectionTotals[k];topKey=k;} }
+  _docSizeInfo={bytes, pct:bytes/FIRESTORE_DOC_LIMIT_BYTES*100, topSection:{name:SIZE_SECTION_LABELS[topKey],bytes:topVal}};
+  const dashEl=document.getElementById('doc-size-indicator-dash');
+  if(dashEl) dashEl.innerHTML=_docSizeIndicatorHTML();
+  const histEl=document.getElementById('doc-size-indicator-hist');
+  if(histEl) histEl.innerHTML=_docSizeIndicatorHTML();
+}
+
+function _docSizeIndicatorHTML(){
+  if(!_docSizeInfo) return '';
+  const{bytes,pct,topSection}=_docSizeInfo;
+  const kb=bytes/1024, limitKb=FIRESTORE_DOC_LIMIT_BYTES/1024;
+  let bg='#e6f4ed', color='#1a7a4a', aviso='';
+  if(pct>=90){ bg='#fde8e8'; color='#c0392b'; aviso=' ⚠ Muy cerca del límite de Firestore — conviene liberar espacio pronto.'; }
+  else if(pct>=70){ bg='#fef3e2'; color='#b8690a'; aviso=' Acercándose al límite de Firestore.'; }
+  return `<div style="background:${bg};color:${color};border-radius:8px;padding:8px 12px;font-size:11px;font-weight:700;margin-bottom:12px">
+    Uso de datos: ${pct.toFixed(1)}% (${kb.toFixed(0)} KB de ${limitKb.toFixed(0)} KB)${aviso}
+    <div style="font-size:10px;font-weight:400;opacity:.85;margin-top:2px">Mayor consumo: ${topSection.name} (${(topSection.bytes/1024).toFixed(0)} KB)</div>
+  </div>`;
 }
 
 // Aplica los campos de un documento cargado/recibido al estado en memoria.
