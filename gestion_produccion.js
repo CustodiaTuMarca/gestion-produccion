@@ -178,6 +178,11 @@ let _npCounter=30;
 let _uidSeq=Math.floor(Date.now()/1000); // base timestamp-based, safe integer
 function _genUid(){return ++_uidSeq;}
 let _proveedores=[]; // ['Proveedor A', 'Proveedor B', ...]
+// Dato global (no por proyecto): rango y asignaciones de lotes de materia prima.
+// Los ids de componente/subconjunto se repiten entre proyectos, por eso cada
+// asignación lleva projId — ver sección "Lotes de materia prima (MP)".
+let _lotesConfig={prefijo:'MP-',desde:1,hasta:100};
+let _lotes=[]; // [{lote,projId,subId,compId,fecha,estado:'activo'|'liberado',fechaLiberacion,motivo}]
 
 function makeProject(name, mode){
   return {
@@ -427,7 +432,13 @@ function _archiveDiscardedMovLog(projId,projName,entries){
 }
 
 function addLog(tipo,title,detail,nota){
-  const proj=currentProject();
+  addLogToProject(currentProject(),tipo,title,detail,nota);
+}
+// Igual que addLog pero a un proyecto explícito — necesario para acciones
+// (p.ej. liberar un lote desde el panel "Lotes MP") que pueden afectar un
+// proyecto distinto del activo, donde currentProject() no sirve.
+function addLogToProject(proj,tipo,title,detail,nota){
+  if(!proj)return;
   proj.movLog.unshift({ts:fmtTs(new Date()),tipo,title,detail,nota:nota||''});
   if(proj.movLog.length>MOVLOG_MAX){
     const discarded=proj.movLog.splice(MOVLOG_MAX);
@@ -513,7 +524,7 @@ function saveTitle(){
 
 // ── Tabs ─────────────────────────────────────────────────────
 function showTab(t){
-  const names=['dashboard','config','stock','entregas','gantt','pendientes','ot','np','historial','pizarra'];
+  const names=['dashboard','config','stock','entregas','gantt','pendientes','ot','np','historial','pizarra','lotes'];
   document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',names[i]===t));
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   document.getElementById('pane-'+t).classList.add('active');
@@ -526,6 +537,7 @@ function showTab(t){
   if(t==='np')renderNPTabla();
   if(t==='pendientes')renderPendientes();
   if(t==='pizarra')renderPizarra();
+  if(t==='lotes')renderLotes();
   if(t==='config'||t==='stock') requestAnimationFrame(applyTabScroll);
 }
 
@@ -1089,6 +1101,7 @@ function _renderSubCards(subsArr, el, baseColorIdx, isOC, oc){
           <button class="btn-del" title="Mover a otro subconjunto" style="font-size:12px" onclick="event.stopPropagation();openMoveCompModal(${c.id})">↔</button>
           <button class="btn-del" onclick="
             const delId=${c.id};
+            _releaseLotsForComp(currentProject(),delId,'Componente eliminado');
             components=components.filter(x=>x.id!==delId);
             // Limpiar referencias a este componente en deps de todos los demás
             currentProject().components.forEach(x=>{x.deps=(x.deps||[]).filter(d=>d!==delId);});
@@ -1215,6 +1228,7 @@ function addSub(){
 }
 function removeSub(id){
   if(!confirm('¿Eliminar este subconjunto y todos sus componentes?'))return;
+  _releaseLotsForSub(currentProject(),id,'Subconjunto eliminado');
   subconjuntos=subconjuntos.filter(x=>x.id!==id);
   components=components.filter(x=>x.subId!==id);
   // Limpiar referencias a este subconjunto en deps de los componentes restantes
@@ -1247,6 +1261,7 @@ function confirmMoveComp(){
   if(!comp||!target)return;
   const origen=subconjuntos.find(s=>s.id===comp.subId);
   if(!confirm(`¿Mover "${comp.name||'(sin nombre)'}" de "${origen?origen.name:'?'}" a "${target.name}"?`))return;
+  _releaseLotsForComp(currentProject(),comp.id,'Componente movido de subconjunto');
   comp.subId=target.id;
   document.getElementById('modal-move-comp').style.display='none';
   _moveCompId=null;
@@ -1515,6 +1530,7 @@ function registrarEntregaSub(projId, ocId, subId, qty){
   ent.entregado=Math.max(0,qty);
   const sub=p.subconjuntos.find(s=>s.id===subId);
   addLog('carga',`📦 Entrega parcial: ${sub?.name||'?'} · ${qty} unid.`,`OC ${p.ordenesCompra.find(o=>o.id===ocId)?.numero||''}` ,'');
+  _checkAutoReleaseLotes(p,ocId,subId);
   scheduleSync();
   renderEntregas();
 }
@@ -1549,6 +1565,7 @@ function agregarEntregaSubHistorial(projId, ocId, subId){
   addLog('carga',
     `📦 Entrega parcial: ${sub.name||'?'} · +${delta} unid.`,
     `OC ${oc.numero||''} · ${fmtDate(fecha)}${remito?' · Remito '+remito:''}`,'');
+  _checkAutoReleaseLotes(p,ocId,subId);
   scheduleSync();
   renderEntregas();
 }
@@ -1806,7 +1823,7 @@ function renderStock(){
                     }).join('')}
                   </select>
                   <input type="text" id="dep-nota-${c.id}" placeholder="Nota…" style="width:80px;font-size:11px;padding:2px 6px;height:26px;border:1px solid #ddd;border-radius:6px">
-                  <button onclick="addStockDep(${c.id})" style="font-size:11px;padding:2px 7px;border:none;border-radius:5px;cursor:pointer;background:var(--amarillo);color:var(--negro);height:26px;white-space:nowrap;font-weight:600">+ Stock</button>
+                  <button onclick="onAddStockClick(${c.id})" style="font-size:11px;padding:2px 7px;border:none;border-radius:5px;cursor:pointer;background:var(--amarillo);color:var(--negro);height:26px;white-space:nowrap;font-weight:600">+ Stock</button>
                 </div>
               </td>
               ${DEPOSITOS.map(dep=>{
@@ -1936,6 +1953,249 @@ function renderArmados(){
 
   document.getElementById('stock-armados').innerHTML=html;
   requestAnimationFrame(applyTabScroll);
+}
+
+// ── Lotes de materia prima (MP) ─────────────────────────────────
+// Dato global (no por proyecto, ver _lotesConfig/_lotes más arriba).
+// Cada asignación ata un número de lote a UN componente puntual
+// (projId+subId+compId) — un mismo subconjunto puede tener varios
+// componentes Compra MP / MP Provista por Cliente, cada uno con su
+// propio lote.
+function _loteDigits(){ return String(_lotesConfig.hasta||1).length; }
+function formatLote(n){ return (_lotesConfig.prefijo||'')+String(n).padStart(_loteDigits(),'0'); }
+
+function _loteActivoDe(projId,subId,compId){
+  return _lotes.find(l=>l.projId===projId&&l.subId===subId&&l.compId===compId&&l.estado==='activo');
+}
+function _lotesActivosDeSub(projId,subId){
+  return _lotes.filter(l=>l.projId===projId&&l.subId===subId&&l.estado==='activo');
+}
+function _numerosOcupados(){
+  return new Set(_lotes.filter(l=>l.estado==='activo').map(l=>l.lote));
+}
+function _lotesLibres(){
+  const ocupados=_numerosOcupados();
+  const libres=[];
+  for(let n=_lotesConfig.desde;n<=_lotesConfig.hasta;n++){
+    const lote=formatLote(n);
+    if(!ocupados.has(lote)) libres.push(lote);
+  }
+  return libres;
+}
+function _releaseLotsForSub(proj,subId,motivo){
+  if(!proj)return false;
+  let any=false;
+  _lotes.forEach(l=>{
+    if(l.projId===proj.id&&l.subId===subId&&l.estado==='activo'){
+      l.estado='liberado'; l.fechaLiberacion=fmtTs(new Date()); l.motivo=motivo||'Liberado';
+      any=true;
+      const sub=proj.subconjuntos.find(s=>s.id===subId);
+      const comp=proj.components.find(c=>c.id===l.compId);
+      addLogToProject(proj,'carga',`🔓 Lote liberado: ${l.lote}`,`${sub?.name||'?'} · ${comp?.name||'?'}${motivo?' · '+motivo:''}`,'');
+    }
+  });
+  if(any)scheduleSync();
+  return any;
+}
+function _releaseLotsForComp(proj,compId,motivo){
+  if(!proj)return false;
+  let any=false;
+  _lotes.forEach(l=>{
+    if(l.projId===proj.id&&l.compId===compId&&l.estado==='activo'){
+      l.estado='liberado'; l.fechaLiberacion=fmtTs(new Date()); l.motivo=motivo||'Liberado';
+      any=true;
+      const comp=proj.components.find(c=>c.id===compId);
+      addLogToProject(proj,'carga',`🔓 Lote liberado: ${l.lote}`,`${comp?.name||'componente eliminado'}${motivo?' · '+motivo:''}`,'');
+    }
+  });
+  if(any)scheduleSync();
+  return any;
+}
+
+// Chequea si el ítem (sub) de una OC quedó entregado por completo y,
+// si es así, libera sus lotes activos. Si luego la entrega baja de
+// nuevo, NO se vuelven a ocupar automáticamente (solo libera, nunca
+// re-ocupa solo).
+function _checkAutoReleaseLotes(p,ocId,subId){
+  const oc=p.ordenesCompra.find(o=>o.id===ocId);
+  const sub=p.subconjuntos.find(s=>s.id===subId);
+  if(!oc||!sub)return;
+  const ent=p.entregas.find(e=>e.ocId===ocId&&e.subId===subId);
+  const subReq=(sub.qty||1)*(oc.qty||1);
+  if(ent&&(ent.entregado||0)>=subReq){
+    _releaseLotsForSub(p,subId,'Ítem entregado por completo');
+  }
+}
+
+// ── Modal: elegir lote antes de cargar stock (Compra MP / MP Provista) ──
+let _loteModalCompId=null;
+function onAddStockClick(compId){
+  const comp=components.find(c=>c.id===compId);
+  if(comp&&(comp.machine==='Compra MP'||comp.machine==='MP Provista por Cliente')){
+    openLoteModal(compId);
+  } else {
+    addStockDep(compId);
+  }
+}
+function openLoteModal(compId){
+  const p=currentProject();
+  const comp=components.find(c=>c.id===compId);
+  if(!comp)return;
+  const sub=subconjuntos.find(s=>s.id===comp.subId);
+  _loteModalCompId=compId;
+  const activo=_loteActivoDe(p.id,comp.subId,compId);
+  let opciones=_lotesLibres();
+  if(activo&&!opciones.includes(activo.lote))opciones.unshift(activo.lote);
+  opciones.sort();
+  document.getElementById('lote-modal-title').textContent=`Lote de MP — ${comp.name||'(sin nombre)'}`;
+  document.getElementById('lote-modal-sub').textContent=`${sub?.name||'?'} · ${comp.machine||''}`;
+  const warnEl=document.getElementById('lote-modal-warn');
+  const selEl=document.getElementById('lote-modal-select');
+  const confirmBtn=document.getElementById('lote-modal-confirm');
+  if(!opciones.length){
+    warnEl.textContent=`⚠ No quedan lotes libres en el rango configurado (${_lotesConfig.prefijo}${_lotesConfig.desde}–${_lotesConfig.hasta}). Liberá alguno o ampliá el rango en "Lotes MP".`;
+    warnEl.style.display='block';
+    selEl.innerHTML='';
+    selEl.style.display='none';
+    confirmBtn.disabled=true;
+  } else {
+    warnEl.style.display='none';
+    selEl.style.display='inline-block';
+    confirmBtn.disabled=false;
+    selEl.innerHTML=opciones.map(l=>`<option value="${l}" ${l===(activo?activo.lote:opciones[0])?'selected':''}>${l}${activo&&l===activo.lote?' (actual)':''}</option>`).join('');
+  }
+  document.getElementById('modal-lote-pick').style.display='flex';
+}
+function closeLoteModal(){
+  document.getElementById('modal-lote-pick').style.display='none';
+  _loteModalCompId=null;
+}
+function confirmLoteModal(){
+  const compId=_loteModalCompId;
+  const comp=components.find(c=>c.id===compId);
+  if(!comp){closeLoteModal();return;}
+  const p=currentProject();
+  const selEl=document.getElementById('lote-modal-select');
+  const elegido=selEl.value;
+  if(!elegido)return;
+  const activo=_loteActivoDe(p.id,comp.subId,compId);
+  if(!activo||activo.lote!==elegido){
+    if(activo){
+      activo.estado='liberado'; activo.fechaLiberacion=fmtTs(new Date()); activo.motivo='Reemplazado por '+elegido;
+      addLogToProject(p,'carga',`🔓 Lote liberado: ${activo.lote}`,`Reemplazado por ${elegido} · ${comp.name||'?'}`,'');
+    }
+    const sub=subconjuntos.find(s=>s.id===comp.subId);
+    _lotes.push({lote:elegido,projId:p.id,subId:comp.subId,compId,fecha:dateStr(today),estado:'activo'});
+    addLogToProject(p,'carga',`🔒 Lote asignado: ${elegido}`,`${sub?.name||'?'} · ${comp.name||'?'}`,'');
+  }
+  closeLoteModal();
+  addStockDep(compId);
+}
+
+// ── Panel "Lotes MP": grilla + configuración del rango ──────────
+let _lotesFilterEstado='todos';
+let _lotesSearch='';
+function setLotesFilterEstado(v){ _lotesFilterEstado=v; renderLotes(); }
+function setLotesSearch(v){ _lotesSearch=v; renderLotes(); }
+
+function updateLotesConfig(nuevoPrefijo,nuevoDesdeRaw,nuevoHastaRaw){
+  nuevoPrefijo=(nuevoPrefijo||'').trim();
+  const nuevoDesde=parseInt(nuevoDesdeRaw,10);
+  const nuevoHasta=parseInt(nuevoHastaRaw,10);
+  if(!nuevoPrefijo||isNaN(nuevoDesde)||isNaN(nuevoHasta)||nuevoDesde<1||nuevoHasta<nuevoDesde){
+    alert('Rango inválido.');
+    return false;
+  }
+  const activos=_lotes.filter(l=>l.estado==='activo'&&l.lote.startsWith(_lotesConfig.prefijo));
+  for(const l of activos){
+    const num=parseInt(l.lote.slice(_lotesConfig.prefijo.length),10);
+    if(!isNaN(num)&&(num<nuevoDesde||num>nuevoHasta)){
+      alert(`No se puede achicar el rango: el lote ${l.lote} está ocupado y quedaría fuera del nuevo rango.`);
+      return false;
+    }
+  }
+  _lotesConfig={prefijo:nuevoPrefijo,desde:nuevoDesde,hasta:nuevoHasta};
+  scheduleSync();
+  renderLotes();
+  return true;
+}
+
+function confirmLiberarLote(loteStr){
+  const l=_lotes.find(x=>x.lote===loteStr&&x.estado==='activo');
+  if(!l)return;
+  const proj=projects.find(p=>p.id===l.projId);
+  const comp=proj?.components.find(c=>c.id===l.compId);
+  if(!confirm(`¿Liberar el lote ${loteStr}${comp?' de "'+comp.name+'"':''}? Queda registrado en el historial, pero la acción no se puede deshacer.`))return;
+  l.estado='liberado'; l.fechaLiberacion=fmtTs(new Date()); l.motivo='Liberado manualmente';
+  if(proj){
+    const sub=proj.subconjuntos.find(s=>s.id===l.subId);
+    addLogToProject(proj,'carga',`🔓 Lote liberado: ${loteStr}`,`${sub?.name||'?'} · ${comp?.name||'?'} · Liberado manualmente`,'');
+  } else {
+    scheduleSync();
+  }
+  renderLotes();
+}
+
+function renderLotes(){
+  const el=document.getElementById('lotes-content');
+  if(!el)return;
+  document.getElementById('lotes-cfg-prefijo').value=_lotesConfig.prefijo;
+  document.getElementById('lotes-cfg-desde').value=_lotesConfig.desde;
+  document.getElementById('lotes-cfg-hasta').value=_lotesConfig.hasta;
+  ['todos','libre','ocupado'].forEach(f=>{
+    const btn=document.getElementById('lotes-f-'+f);
+    if(!btn)return;
+    const on=_lotesFilterEstado===f;
+    btn.style.background=on?'#1a1a1a':'#fff';
+    btn.style.color=on?'#fff':'#888';
+  });
+
+  const rows=[];
+  for(let n=_lotesConfig.desde;n<=_lotesConfig.hasta;n++){
+    const lote=formatLote(n);
+    const activo=_lotes.find(l=>l.lote===lote&&l.estado==='activo');
+    rows.push({lote,activo});
+  }
+  const search=_lotesSearch.trim().toLowerCase();
+  const filtered=rows.filter(r=>{
+    if(_lotesFilterEstado==='libre'&&r.activo)return false;
+    if(_lotesFilterEstado==='ocupado'&&!r.activo)return false;
+    if(search){
+      const proj=r.activo?projects.find(p=>p.id===r.activo.projId):null;
+      const comp=r.activo&&proj?proj.components.find(c=>c.id===r.activo.compId):null;
+      const hay=`${r.lote} ${proj?.name||''} ${comp?.name||''}`.toLowerCase();
+      if(!hay.includes(search))return false;
+    }
+    return true;
+  });
+
+  if(!filtered.length){
+    el.innerHTML='<div style="text-align:center;color:#aaa;padding:30px;font-size:12px">Sin resultados.</div>';
+    return;
+  }
+  el.innerHTML=`<div style="overflow-x:auto"><table class="tbl">
+    <thead><tr><th>Lote</th><th>Estado</th><th>Proyecto</th><th>Ítem</th><th>Fecha</th><th></th></tr></thead>
+    <tbody>
+    ${filtered.map(r=>{
+      if(!r.activo){
+        return `<tr><td style="font-weight:600">${r.lote}</td>
+          <td><span style="color:#1a7a4a;font-weight:700">Libre</span></td>
+          <td colspan="2" style="color:#aaa">—</td><td>—</td><td></td></tr>`;
+      }
+      const proj=projects.find(p=>p.id===r.activo.projId);
+      const sub=proj?.subconjuntos.find(s=>s.id===r.activo.subId);
+      const comp=proj?.components.find(c=>c.id===r.activo.compId);
+      return `<tr>
+        <td style="font-weight:600">${r.lote}</td>
+        <td><span style="color:#c0392b;font-weight:700">Ocupado</span></td>
+        <td>${proj?.name||'(proyecto eliminado)'}</td>
+        <td>${sub?.name||'?'} · ${comp?.name||'?'}</td>
+        <td>${fmtDate(r.activo.fecha)}</td>
+        <td><button onclick="confirmLiberarLote('${r.lote}')" style="font-size:11px;color:#c0392b;background:none;border:1px solid #f5c6c6;border-radius:6px;padding:3px 10px;cursor:pointer">Liberar</button></td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+  </table></div>`;
 }
 
 // ── Agregar stock a depósito ───────────────────────────────────
@@ -4735,7 +4995,9 @@ function exportBackup(){
     _projIdSeq,
     _otCounter,
     _npCounter,
-    _proveedores
+    _proveedores,
+    _lotesConfig,
+    _lotes
   };
   const json=JSON.stringify(payload,null,2);
   const blob=new Blob([json],{type:'application/json'});
@@ -6992,7 +7254,7 @@ async function saveToFirestore(ticket){
   if(!_userId||_conflictOpen)return;
   setSyncState('saving');
   const docRef=db.collection('usuarios').doc(_userId);
-  const payload={projects, activeProjectId, ganttSelectedIds, _projIdSeq, _otCounter, _npCounter, _proveedores};
+  const payload={projects, activeProjectId, ganttSelectedIds, _projIdSeq, _otCounter, _npCounter, _proveedores, _lotesConfig, _lotes};
   try{
     const newRev=await db.runTransaction(async tx=>{
       const snap=await tx.get(docRef);
@@ -7130,7 +7392,7 @@ function _fsValueSize(v){
 }
 
 function computeDocSizeEstimate(){
-  const payload={projects, activeProjectId, ganttSelectedIds, _projIdSeq, _otCounter, _npCounter, _proveedores};
+  const payload={projects, activeProjectId, ganttSelectedIds, _projIdSeq, _otCounter, _npCounter, _proveedores, _lotesConfig, _lotes};
   const bytes=_fsValueSize(payload);
   const sectionTotals={movLog:0,components:0,ordenes:0,notasPedido:0,entregas:0,stockDep:0,subconjuntos:0,otros:0};
   for(const p of projects){
@@ -7179,6 +7441,8 @@ function _applyLoadedData(data){
   const _maxNpFs=data.projects.reduce((mx,p)=>Math.max(mx,...(p.notasPedido||[]).map(n=>n.npNum||0)),0);
   _npCounter=Math.max(_npCounter, _maxNpFs+1);
   if(data._proveedores && Array.isArray(data._proveedores)) _proveedores = data._proveedores;
+  if(data._lotesConfig && typeof data._lotesConfig==='object') _lotesConfig = data._lotesConfig;
+  if(data._lotes && Array.isArray(data._lotes)) _lotes = data._lotes;
   // sanear referencias
   if(!projects.find(p=>p.id===activeProjectId)) activeProjectId=projects[0].id;
   ganttSelectedIds=ganttSelectedIds.filter(id=>projects.some(p=>p.id===id));
@@ -7279,6 +7543,7 @@ function renderActiveTab(){
   else if(t==='pendientes')renderPendientes();
   else if(t==='pizarra')renderPizarra();
   else if(t==='config')renderSubList();
+  else if(t==='lotes')renderLotes();
 }
 
 function showRemoteBanner(){
@@ -7318,6 +7583,7 @@ function _downloadLocalSnapshot(prefix){
   const payload={
     version:2, ts:now.toISOString(),
     projects, activeProjectId, ganttSelectedIds, _projIdSeq, _otCounter, _npCounter, _proveedores,
+    _lotesConfig, _lotes,
     _rev:_localRev
   };
   const json=JSON.stringify(payload,null,2);
