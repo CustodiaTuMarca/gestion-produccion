@@ -1088,7 +1088,7 @@ function _renderSubCards(subsArr, el, baseColorIdx, isOC, oc){
       const descMPField=esMP?`
         <div class="field"><label>📝 Descripción MP</label>
           <input type="text" value="${(c.descripcionMP||'').replace(/"/g,'&quot;')}" placeholder="Ej: barra cromada 30mm"
-            onchange="components.find(x=>x.id==${c.id}).descripcionMP=this.value">
+            onchange="components.find(x=>x.id==${c.id}).descripcionMP=this.value;scheduleSync()">
         </div>`:'';
 
       const fab=totalStockComp(c.id);
@@ -1983,6 +1983,16 @@ function _lotesLibres(){
   }
   return libres;
 }
+// Descripciones de MP (comp.descripcionMP) de los componentes Compra MP / MP
+// Provista por Cliente de un ítem (subconjunto) — para la fila "MATERIA PRIMA"
+// de la OT, junto a "LOTE MP".
+function _descMPListDeItem(proj,subId){
+  const list=[];
+  (proj.components||[]).filter(c=>c.subId===subId&&(c.machine==='Compra MP'||c.machine==='MP Provista por Cliente')&&c.descripcionMP)
+    .forEach(c=>{ if(!list.includes(c.descripcionMP))list.push(c.descripcionMP); });
+  return list;
+}
+
 // Etiquetas de lote activo de un ítem (subconjunto), para Stock/OT/Pizarra.
 function _lotesBadgesHTML(projId,subId){
   const activos=_lotesActivosDeSub(projId,subId);
@@ -5150,13 +5160,16 @@ function openOT(compId,runId){
 
   const loteWrap=document.getElementById('ot-lote-wrap');
   const loteText=document.getElementById('ot-lote-text');
+  const descWrap=document.getElementById('ot-descmp-wrap');
+  const descText=document.getElementById('ot-descmp-text');
+  const rowWrap=document.getElementById('ot-lote-mp-row');
   const lotesActivos=_lotesActivosDeSub(currentProject().id,comp.subId);
-  if(lotesActivos.length){
-    loteText.textContent=lotesActivos.map(l=>l.lote).join(', ');
-    loteWrap.style.display='block';
-  } else {
-    loteWrap.style.display='none';
-  }
+  const descMPTxt=_descMPListDeItem(currentProject(),comp.subId).join(' / ');
+  loteWrap.style.display=lotesActivos.length?'block':'none';
+  if(lotesActivos.length) loteText.textContent=lotesActivos.map(l=>l.lote).join(', ');
+  descWrap.style.display=descMPTxt?'block':'none';
+  if(descMPTxt) descText.textContent=descMPTxt;
+  rowWrap.style.display=(lotesActivos.length||descMPTxt)?'flex':'none';
 
   // comprobar si ya existe OT para este run
   const existing=findOTForRun(compId,runId);
@@ -5461,6 +5474,12 @@ function printOT(){
   _linkedSubIds.forEach(sid=>_lotesActivosDeSub(currentProject().id,sid).forEach(l=>loteSet.add(l.lote)));
   const loteTxt=[...loteSet].join(', ');
 
+  // Descripción de MP de los componentes Compra MP / MP Provista por Cliente
+  // del MISMO ítem (subconjunto) que esta OT — distinto de mpDescTxt (que mira deps).
+  const descMPList=[];
+  _linkedSubIds.forEach(sid=>_descMPListDeItem(currentProject(),sid).forEach(t=>{ if(!descMPList.includes(t))descMPList.push(t); }));
+  const descMPItemTxt=descMPList.join(' / ');
+
   function cb(checked){
     return `<span style="display:inline-block;width:14px;height:14px;border:2px solid #333;
       background:${checked?'#111':'#fff'};border-radius:2px;flex-shrink:0;vertical-align:middle;
@@ -5616,12 +5635,16 @@ function printOT(){
         </div>
       </div>
 
-      ${loteTxt?`
-      <!-- Fila LOTE MP: bien visible -->
-      <div class="frow" style="grid-template-columns:1fr">
-        <div class="cell" style="border-right:none">
+      ${(loteTxt||descMPItemTxt)?`
+      <!-- Fila LOTE MP + MATERIA PRIMA del ítem: bien visible -->
+      <div class="frow" style="grid-template-columns:1fr 1fr">
+        <div class="cell">
           <div class="cell-lbl">LOTE MP</div>
           <div class="cell-val" style="font-size:14pt;font-weight:900">${safe(loteTxt,200)}</div>
+        </div>
+        <div class="cell" style="border-right:none">
+          <div class="cell-lbl">MATERIA PRIMA</div>
+          <div class="cell-val" style="font-size:7.5pt;font-weight:600;line-height:1.15;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;align-items:flex-start;overflow:hidden;max-height:2.3em">${safe(descMPItemTxt,300)}</div>
         </div>
       </div>`:''}
 
