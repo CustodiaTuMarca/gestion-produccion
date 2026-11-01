@@ -6943,6 +6943,9 @@ let _conflictOpen=false;      // hay un conflicto esperando resolución del usua
 let _conflictInfo=null;       // {remoteRev, remoteData?} del conflicto actual
 let _pendingRemoteInfo=null;  // {remoteRev, remoteData} de un cambio remoto bloqueado por el banner
 let _unsubscribeSnapshot=null;
+let _saveErrorInfo=null;      // {kind,label,detail} del error de guardado activo (null = sin error)
+let _saveRetryTimer=null;     // reintento automático (solo errores de red)
+let _saveRetryCount=0;
 
 scheduleSync=function(){
   if(!_userId||_loadingData||_conflictOpen)return;
@@ -6950,6 +6953,7 @@ scheduleSync=function(){
   _syncTicket++;
   const myTicket=_syncTicket;
   clearTimeout(_saveTimer);
+  clearTimeout(_saveRetryTimer);
   _saveTimer=setTimeout(()=>saveToFirestore(myTicket), 2000);
   setSyncState('unsaved');
 };
@@ -6974,6 +6978,7 @@ async function saveToFirestore(ticket){
       return nextRev;
     });
     _localRev=newRev;
+    clearSaveErrorState();
     if(ticket===_syncTicket){
       _hasUnsavedChanges=false;
       setSyncState('synced');
@@ -6984,10 +6989,80 @@ async function saveToFirestore(ticket){
     if(e&&e.__syncConflict){
       enterConflictState({remoteRev:e.remoteRev,remoteData:e.remoteData});
     } else {
-      console.error('Firestore save error:',e);
-      setSyncState('unsaved');
+      console.error('Firestore save error:',e,{code:e&&e.code,message:e&&e.message,ticket});
+      enterSaveErrorState(_classifySaveError(e));
     }
   }
+}
+
+// Clasifica el error de guardado para explicarle al usuario qué pasó.
+function _classifySaveError(e){
+  const code=(e&&e.code)||'';
+  const msg=(e&&e.message)||'';
+  if(code==='invalid-argument' || /exceeds the maximum allowed size|maximum size|too large/i.test(msg)){
+    return {kind:'size', label:'Documento demasiado grande',
+      detail:'El documento superó el límite de tamaño de Firestore (1 MiB / 1024 KB). No se puede guardar hasta liberar espacio (por ejemplo, reduciendo el historial de movimientos).'};
+  }
+  if(code==='permission-denied'){
+    return {kind:'permission', label:'Sin permisos',
+      detail:'Firestore rechazó el guardado por falta de permisos. Revisá tu sesión o los permisos de la cuenta.'};
+  }
+  if(code==='unavailable' || code==='deadline-exceeded' || /network|offline/i.test(msg) || (typeof navigator!=='undefined' && navigator.onLine===false)){
+    return {kind:'network', label:'Sin conexión',
+      detail:'No se pudo conectar con el servidor para guardar. Se va a reintentar automáticamente.'};
+  }
+  return {kind:'unknown', label:'Error al guardar',
+    detail:'No se pudo guardar por un error inesperado'+(code?' ('+code+')':'')+'. Revisá la consola del navegador para más detalle.'};
+}
+
+// Entra en estado de error visible: indicador rojo, banner y (si es de red) reintento con backoff.
+function enterSaveErrorState(info){
+  _saveErrorInfo=info;
+  setSyncState('error');
+  const banner=document.getElementById('save-error-banner');
+  const msgEl=document.getElementById('save-error-banner-msg');
+  if(banner&&msgEl){
+    msgEl.textContent='⚠ '+info.detail;
+    banner.style.display='flex';
+  }
+  if(info.kind==='network'){
+    _scheduleSaveRetry();
+  } else {
+    clearTimeout(_saveRetryTimer);
+    _saveRetryCount=0;
+  }
+}
+
+function clearSaveErrorState(){
+  _saveErrorInfo=null;
+  _saveRetryCount=0;
+  clearTimeout(_saveRetryTimer);
+  const banner=document.getElementById('save-error-banner');
+  if(banner)banner.style.display='none';
+}
+
+// Backoff exponencial (2s,4s,8s,16s,30s máx) — solo para errores de red.
+function _scheduleSaveRetry(){
+  _saveRetryCount++;
+  const delay=Math.min(30000, 2000*Math.pow(2,_saveRetryCount-1));
+  clearTimeout(_saveRetryTimer);
+  _saveRetryTimer=setTimeout(()=>saveToFirestore(), delay);
+}
+
+function openSaveErrorModal(){
+  if(!_saveErrorInfo)return;
+  const detailEl=document.getElementById('save-error-modal-detail');
+  if(detailEl)detailEl.textContent=_saveErrorInfo.detail;
+  const modal=document.getElementById('modal-save-error');
+  if(modal)modal.style.display='flex';
+}
+function closeSaveErrorModal(){
+  const modal=document.getElementById('modal-save-error');
+  if(modal)modal.style.display='none';
+}
+function retrySaveNow(){
+  closeSaveErrorModal();
+  saveToFirestore();
 }
 
 // Aplica los campos de un documento cargado/recibido al estado en memoria.
@@ -7135,10 +7210,10 @@ function closeSyncConflictModal(){
   if(modal)modal.style.display='none';
 }
 
-function _downloadLocalConflictBackup(){
+function _downloadLocalSnapshot(prefix){
   const now=new Date();
   const pad=n=>String(n).padStart(2,'0');
-  const fname=`conflicto_local_${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.json`;
+  const fname=`${prefix}_${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.json`;
   const payload={
     version:2, ts:now.toISOString(),
     projects, activeProjectId, ganttSelectedIds, _projIdSeq, _otCounter, _npCounter, _proveedores,
@@ -7150,6 +7225,8 @@ function _downloadLocalConflictBackup(){
   const a=document.createElement('a');
   a.href=url;a.download=fname;a.click();URL.revokeObjectURL(url);
 }
+function _downloadLocalConflictBackup(){ _downloadLocalSnapshot('conflicto_local'); }
+function _downloadLocalErrorBackup(){ _downloadLocalSnapshot('error_guardado'); }
 
 // Opciones (a) y (b) del modal de conflicto: mismo resultado — bajar un
 // respaldo de lo local y después cargar los datos del servidor.
@@ -7197,6 +7274,9 @@ function resolveConflict_forceOverwrite(){
 function setSyncState(state){
   const el=document.getElementById('sync-indicator');
   if(!el)return;
+  // Mientras haya un error de guardado sin resolver, no lo tapamos con
+  // 'synced'/'unsaved' — el error manda hasta que un guardado confirme OK.
+  if(_saveErrorInfo && (state==='unsaved'||state==='synced')) return;
   el.onclick=null; el.style.cursor='default';
   if(state==='synced'){
     el.textContent='✓ Sincronizado';
@@ -7212,6 +7292,11 @@ function setSyncState(state){
     el.style.background='#fde8e8'; el.style.color='#c0392b';
     el.style.cursor='pointer';
     el.onclick=()=>{const m=document.getElementById('modal-sync-conflict');if(m)m.style.display='flex';};
+  } else if(state==='error'){
+    el.textContent='⚠ Error al guardar - hacé clic';
+    el.style.background='#fde8e8'; el.style.color='#c0392b';
+    el.style.cursor='pointer';
+    el.onclick=openSaveErrorModal;
   }
 }
 
