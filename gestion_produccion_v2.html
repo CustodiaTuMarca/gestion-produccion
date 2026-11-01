@@ -8,7 +8,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-<link rel="stylesheet" href="gestion_produccion.css?v=20261101">
+<link rel="stylesheet" href="gestion_produccion.css?v=20261102">
 </head>
 <body>
 
@@ -923,6 +923,10 @@
         </div>
         <select id="ot-link-sel" style="width:100%;font-size:12px"></select>
       </div>
+      <div id="ot-lote-wrap" style="display:none;background:#eef5fc;border:1.5px solid #b8d4f0;border-radius:8px;padding:8px 12px;margin-bottom:10px">
+        <div style="font-size:10px;font-weight:700;color:#2980b9;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">🏷 LOTE MP</div>
+        <div id="ot-lote-text" style="font-size:15px;font-weight:900;color:#1a1a1a"></div>
+      </div>
       <div id="ot-print-area">
         <!-- HEADER -->
         <div class="ot-header">
@@ -1071,6 +1075,6 @@
 </div><!-- /.app -->
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="gestion_produccion.js?v=20261101"></script>
+<script src="gestion_produccion.js?v=20261102"></script>
 </body>
 </html>

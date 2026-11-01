@@ -1733,6 +1733,7 @@ function renderStock(){
           <div style="width:10px;height:10px;border-radius:3px;background:${subCol};flex-shrink:0"></div>
           <span style="font-weight:700;font-size:14px;flex:1">${sub.name}
             ${sub.esRecursoProyecto?'<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:5px;background:var(--amarillo);color:var(--negro);margin-left:5px">📦 Recurso proyecto</span>':''}
+            ${_lotesBadgesHTML(p.id,sub.id)}
           </span>
           <span style="font-size:11px;color:#888">
             ${sub.esRecursoProyecto
@@ -1982,6 +1983,13 @@ function _lotesLibres(){
   }
   return libres;
 }
+// Etiquetas de lote activo de un ítem (subconjunto), para Stock/OT/Pizarra.
+function _lotesBadgesHTML(projId,subId){
+  const activos=_lotesActivosDeSub(projId,subId);
+  if(!activos.length)return '';
+  return activos.map(l=>`<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:5px;background:#eef5fc;color:#2980b9;margin-left:4px;white-space:nowrap">🏷 ${l.lote}</span>`).join('');
+}
+
 function _releaseLotsForSub(proj,subId,motivo){
   if(!proj)return false;
   let any=false;
@@ -5140,6 +5148,16 @@ function openOT(compId,runId){
   const run=comp?.runs?.find(r=>r.id===runId);
   if(!comp||!run)return;
 
+  const loteWrap=document.getElementById('ot-lote-wrap');
+  const loteText=document.getElementById('ot-lote-text');
+  const lotesActivos=_lotesActivosDeSub(currentProject().id,comp.subId);
+  if(lotesActivos.length){
+    loteText.textContent=lotesActivos.map(l=>l.lote).join(', ');
+    loteWrap.style.display='block';
+  } else {
+    loteWrap.style.display='none';
+  }
+
   // comprobar si ya existe OT para este run
   const existing=findOTForRun(compId,runId);
 
@@ -5433,6 +5451,16 @@ function printOT(){
   });
   const mpDescTxt=mpDescs.join(' · ');
 
+  // Lote(s) activos del ítem (subconjunto) al que pertenece el/los componente(s) de esta OT.
+  const _linkedSubIds=new Set();
+  _linkedCompIds.forEach(cid=>{
+    const c=components.find(x=>x.id===cid);
+    if(c)_linkedSubIds.add(c.subId);
+  });
+  const loteSet=new Set();
+  _linkedSubIds.forEach(sid=>_lotesActivosDeSub(currentProject().id,sid).forEach(l=>loteSet.add(l.lote)));
+  const loteTxt=[...loteSet].join(', ');
+
   function cb(checked){
     return `<span style="display:inline-block;width:14px;height:14px;border:2px solid #333;
       background:${checked?'#111':'#fff'};border-radius:2px;flex-shrink:0;vertical-align:middle;
@@ -5588,6 +5616,15 @@ function printOT(){
         </div>
       </div>
 
+      ${loteTxt?`
+      <!-- Fila LOTE MP: bien visible -->
+      <div class="frow" style="grid-template-columns:1fr">
+        <div class="cell" style="border-right:none">
+          <div class="cell-lbl">LOTE MP</div>
+          <div class="cell-val" style="font-size:14pt;font-weight:900">${safe(loteTxt,200)}</div>
+        </div>
+      </div>`:''}
+
       ${mpDescTxt?`
       <!-- Fila MP: cómo viene la materia prima -->
       <div class="frow" style="grid-template-columns:1fr">
@@ -5739,6 +5776,19 @@ function _pizarraProcesoEstado(ot,proj){
   return result;
 }
 
+// Lote(s) activos del ítem (subconjunto) al que pertenece esta OT, para la columna "Lote".
+function _pizarraLoteTxt(ot,proj){
+  const runList=ot.runs&&ot.runs.length>0?ot.runs:[{compId:ot.compId,runId:ot.runId}];
+  const subIds=new Set();
+  runList.forEach(({compId})=>{
+    const c=proj.components.find(c=>c.id===compId);
+    if(c)subIds.add(c.subId);
+  });
+  const loteSet=new Set();
+  subIds.forEach(sid=>_lotesActivosDeSub(proj.id,sid).forEach(l=>loteSet.add(l.lote)));
+  return [...loteSet].join(', ');
+}
+
 function _pizarraCircle(estado,size){
   if(estado===null||estado===undefined) return '';
   size=size||26;
@@ -5800,6 +5850,7 @@ function renderPizarra(){
       <td class="piz-ell" style="${rowBorder}" title="${ot.pieza||''}">${ot.pieza||''}</td>
       <td class="piz-ell" style="${rowBorder}" title="${ot.descripcion||''}">${ot.descripcion||''}</td>
       <td class="piz-num" style="${rowBorder}">${ot.unidades||''}</td>
+      <td class="piz-ell" style="${rowBorder}">${_pizarraLoteTxt(ot,proj)}</td>
       <td class="piz-proc" style="${procTdStyle}">${_pizarraCircle(procEstado.Torno,circleSize)}</td>
       <td class="piz-proc" style="${procTdStyle}">${_pizarraCircle(procEstado.Centro,circleSize)}</td>
       <td class="piz-proc" style="${procTdStyle}">${_pizarraCircle(procEstado.Roscado,circleSize)}</td>
@@ -5810,7 +5861,7 @@ function renderPizarra(){
   el.innerHTML=`<table class="piz-table" style="table-layout:fixed;width:100%;border-collapse:collapse">
     <thead><tr>
       <th>N° OT</th><th>Cliente</th><th>OC cliente</th><th>Código/pieza</th><th>Descripción</th>
-      <th>Cant.</th>
+      <th>Cant.</th><th>Lote</th>
       <th style="${procThStyle}">Torno</th><th style="${procThStyle}">Centro</th><th style="${procThStyle}">Roscado</th><th style="${procThStyle}">Soldadura</th>
     </tr></thead>
     <tbody>${trs}</tbody>
@@ -5882,6 +5933,7 @@ function printPizarra(){
       <td class="piz-ell">${ot.pieza||''}</td>
       <td class="piz-ell">${ot.descripcion||''}</td>
       <td class="piz-num">${ot.unidades||''}</td>
+      <td class="piz-ell">${_pizarraLoteTxt(ot,proj)}</td>
       <td class="piz-proc">${_pizarraCircle(procEstado.Torno,14)}</td>
       <td class="piz-proc">${_pizarraCircle(procEstado.Centro,14)}</td>
       <td class="piz-proc">${_pizarraCircle(procEstado.Roscado,14)}</td>
@@ -5899,7 +5951,8 @@ function printPizarra(){
     table{width:100%;border-collapse:collapse;table-layout:fixed}
     th,td{border-bottom:1px solid #ccc;padding:3px 5px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#1a1a1a}
     th{background:#eee;font-weight:700;text-transform:uppercase;font-size:8.5px;text-align:left;border-bottom:2px solid #999}
-    th:nth-child(n+7),td:nth-child(n+7){width:60px;text-align:center}
+    th:nth-child(7),td:nth-child(7){width:55px}
+    th:nth-child(n+8),td:nth-child(n+8){width:60px;text-align:center}
     tbody tr:nth-child(even) td{background:#f5f5f5}
     td.piz-num{text-align:center;font-weight:700}
     td.piz-proc{text-align:center}
@@ -5912,7 +5965,7 @@ function printPizarra(){
   <div class="meta">Generado el ${ts} · ${rows.length} OT</div>
   <table><thead><tr>
     <th>N° OT</th><th>Cliente</th><th>OC cliente</th><th>Código/pieza</th><th>Descripción</th>
-    <th>Cant.</th><th>Torno</th><th>Centro</th><th>Roscado</th><th>Soldadura</th>
+    <th>Cant.</th><th>Lote</th><th>Torno</th><th>Centro</th><th>Roscado</th><th>Soldadura</th>
   </tr></thead><tbody>${trs}</tbody></table>
   <script>window.onload=()=>window.print()<\/script>
   </body></html>`);
