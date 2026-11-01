@@ -5233,11 +5233,14 @@ function _fillOTDefaultsFromComponent(compId,runId){
   const run=comp?.runs?.find(r=>r.id===runId);
   if(!comp||!run)return;
   const sub=subconjuntos.find(s=>s.id===comp.subId);
+  // Si el ítem pertenece a una OC, sugerir Cliente y Doc. asociado desde ahí
+  // (comp.subId -> sub.ocId -> oc, siempre en el proyecto activo).
+  const oc=sub?.ocId?(currentProject().ordenesCompra||[]).find(o=>o.id===sub.ocId):null;
   document.getElementById('ot-numero-input').value=_nextOtNum();
   document.getElementById('ot-fecha-pedido').value=dateStr(new Date());
   document.getElementById('ot-fecha-entrega').value='';
-  document.getElementById('ot-cliente').value='';
-  document.getElementById('ot-doc-asoc').value='';
+  document.getElementById('ot-cliente').value=oc?.cliente||'';
+  document.getElementById('ot-doc-asoc').value=oc?.numero||'';
   document.getElementById('ot-descripcion').value=comp.name||'';
   document.getElementById('ot-pieza').value=sub?.name||'';
   document.getElementById('ot-unid-val').textContent=run.qty||1;
