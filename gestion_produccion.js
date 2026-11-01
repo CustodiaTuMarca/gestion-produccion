@@ -2313,6 +2313,74 @@ function _autoArmarOCItem(comp,dep){
   showToast(`🔧 Armado automático: ${armarQty} × ${sub.name}`);
 }
 
+// ── Variantes de addStockDep/_autoArmarOCItem con proyecto EXPLÍCITO ──
+// addStockDep/_autoArmarOCItem operan sobre currentProject() vía los
+// accessors globales (components, stockDep, subconjuntos, subArmados).
+// Eso es un problema para la Pizarra: lista OTs de TODOS los proyectos,
+// y los ids de componente/run se repiten entre proyectos — si se
+// llamara a addStockDep directo, cargaría stock en el componente del
+// proyecto ACTIVO, no en el del proyecto al que pertenece la fila.
+// Estas dos funciones replican exactamente la misma lógica pero
+// recibiendo `proj` explícito, para no tocar el modelo de datos ni el
+// flujo manual existente.
+function _addStockDepToProject(proj,compId,dep,qty,nota,runId,origen){
+  if(!proj||!dep||qty<=0)return;
+  if(!proj.stockDep[compId])proj.stockDep[compId]={};
+  proj.stockDep[compId][dep]=(proj.stockDep[compId][dep]||0)+qty;
+  const comp=proj.components.find(c=>c.id===compId);
+  const sub=comp?proj.subconjuntos.find(s=>s.id===comp.subId):null;
+
+  let runInfo='';
+  if(runId&&comp){
+    const run=comp.runs?.find(r=>r.id===runId);
+    if(run){
+      run.fabricado=(run.fabricado||0)+qty;
+      const done=run.fabricado>=(run.qty||1);
+      runInfo=` · Run ×${run.qty} ${done?'→ COMPLETADO ✓':'→ '+run.fabricado+'/'+run.qty}`;
+    }
+  }
+
+  addLogToProject(proj,'carga',
+    `${comp?.name||'?'} · +${qty} unid. → 📍 ${dep}${origen?' · '+origen:''}`,
+    `Subconj: ${sub?.name||'?'}${runInfo}`,
+    nota);
+  if(comp)_autoArmarOCItemInProject(proj,comp,dep);
+}
+function _autoArmarOCItemInProject(proj,comp,dep){
+  if((proj.mode||'conjuntos')!=='oc')return;
+  const sub=proj.subconjuntos.find(s=>s.id===comp.subId);
+  if(!sub||!sub.ocId)return;
+  const oc=(proj.ordenesCompra||[]).find(o=>o.id===sub.ocId);
+  if(!oc||_ocCompleta(proj,oc))return;
+
+  const subReq=(sub.qty||1)*(oc.qty||1);
+  const restante=subReq-(proj.subArmados[sub.id]||[]).reduce((s,x)=>s+x.qty,0);
+  if(restante<=0)return;
+
+  const subComps=proj.components.filter(c=>c.subId===sub.id);
+  if(!subComps.length)return;
+  const maxUnits=Math.min(...subComps.map(c=>{
+    const need=c.qty||1;
+    const inDep=(proj.stockDep[c.id]||{})[dep]||0;
+    return Math.floor(inDep/need);
+  }));
+  const armarQty=Math.min(maxUnits,restante);
+  if(armarQty<1)return;
+
+  subComps.forEach(c=>{
+    const need=(c.qty||1)*armarQty;
+    if(!proj.stockDep[c.id])proj.stockDep[c.id]={};
+    proj.stockDep[c.id][dep]=(proj.stockDep[c.id][dep]||0)-need;
+    if(proj.stockDep[c.id][dep]<0)proj.stockDep[c.id][dep]=0;
+  });
+  if(!proj.subArmados[sub.id])proj.subArmados[sub.id]=[];
+  proj.subArmados[sub.id].push({qty:armarQty,deposito:dep});
+  addLogToProject(proj,'sub',
+    `🤖 ${sub.name} · ${armarQty} unid. armadas automáticamente`,
+    `Stock suficiente detectado en 📍 ${dep} tras cargar stock (desde Pizarra)`,'');
+  showToast(`🔧 Armado automático: ${armarQty} × ${sub.name}`);
+}
+
 function showToast(msg){
   const t=document.createElement('div');
   t.textContent=msg;
@@ -5797,9 +5865,31 @@ function _pizarraProcesoEstado(ot,proj){
         totalQty+=r.qty||0;
       });
     });
-    result[proc]=(hasRuns&&totalQty>0&&totalFab>=totalQty)?'verde':'rojo';
+    const estado=(hasRuns&&totalQty>0&&totalFab>=totalQty)?'verde':'rojo';
+    result[proc]={estado,fab:totalFab,qty:totalQty};
   });
   return result;
+}
+
+// Entre los componentes de ese proceso en el/los ítem(s) de la OT, busca el
+// run pendiente (fabricado<qty) más antiguo — ese es "el run que
+// corresponde" para cargar stock desde la Pizarra.
+function _pizarraPendingRunForProc(ot,proj,proc){
+  const runList=ot.runs&&ot.runs.length>0?ot.runs:[{compId:ot.compId,runId:ot.runId}];
+  const subIds=new Set();
+  runList.forEach(({compId})=>{
+    const c=proj.components.find(c=>c.id===compId);
+    if(c)subIds.add(c.subId);
+  });
+  const comps=proj.components.filter(c=>subIds.has(c.subId)&&c.machine===proc);
+  let best=null;
+  comps.forEach(c=>{
+    (c.runs||[]).forEach(r=>{
+      const fab=r.fabricado||0,qty=r.qty||1;
+      if(fab<qty && (!best || (r.fecha||'')<(best.run.fecha||''))) best={comp:c,run:r};
+    });
+  });
+  return best;
 }
 
 // Lote(s) activos del ítem (subconjunto) al que pertenece esta OT, para la columna "Lote".
@@ -5815,13 +5905,24 @@ function _pizarraLoteTxt(ot,proj){
   return [...loteSet].join(', ');
 }
 
-function _pizarraCircle(estado,size){
-  if(estado===null||estado===undefined) return '';
+// info = {estado,fab,qty} (ver _pizarraProcesoEstado) o null (celda vacía).
+// proj/ot/proc solo se pasan en pantalla (renderPizarra), para hacer
+// clicable el círculo rojo; en la impresión (printPizarra) se omiten y
+// el círculo queda sin onclick.
+function _pizarraCircle(info,size,proj,ot,proc){
+  if(!info||info.estado===null||info.estado===undefined) return '';
   size=size||26;
-  const base=`display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;font-weight:800;color:#fff;font-size:${Math.round(size*0.55)}px;print-color-adjust:exact;-webkit-print-color-adjust:exact`;
-  return estado==='verde'
-    ?`<span style="${base};background:#1a7a4a">✓</span>`
-    :`<span style="${base};background:#c0392b"></span>`;
+  const common=`display:inline-flex;align-items:center;justify-content:center;height:${size}px;border-radius:999px;font-weight:800;color:#fff;print-color-adjust:exact;-webkit-print-color-adjust:exact;line-height:1`;
+  if(info.estado==='verde'){
+    return `<span style="${common};width:${size}px;font-size:${Math.round(size*0.55)}px;background:#1a7a4a">✓</span>`;
+  }
+  const label=`${info.fab}/${info.qty}`;
+  const fontSize=Math.max(9,Math.round(size*0.38));
+  if(proj&&ot){
+    const otKey=ot._uid||ot.otNum;
+    return `<span onclick="openPizarraStockModal(${proj.id},${otKey},'${proc}')" style="${common};min-width:${size}px;padding:0 6px;font-size:${fontSize}px;background:#c0392b;cursor:pointer" title="Clic para cargar stock">${label}</span>`;
+  }
+  return `<span style="${common};min-width:${size}px;padding:0 6px;font-size:${fontSize}px;background:#c0392b">${label}</span>`;
 }
 
 // Pantalla normal: columnas de proceso 80px / círculo 26px.
@@ -5877,10 +5978,10 @@ function renderPizarra(){
       <td class="piz-ell" style="${rowBorder}" title="${ot.descripcion||''}">${ot.descripcion||''}</td>
       <td class="piz-num" style="${rowBorder}">${ot.unidades||''}</td>
       <td class="piz-ell" style="${rowBorder}">${_pizarraLoteTxt(ot,proj)}</td>
-      <td class="piz-proc" style="${procTdStyle}">${_pizarraCircle(procEstado.Torno,circleSize)}</td>
-      <td class="piz-proc" style="${procTdStyle}">${_pizarraCircle(procEstado.Centro,circleSize)}</td>
-      <td class="piz-proc" style="${procTdStyle}">${_pizarraCircle(procEstado.Roscado,circleSize)}</td>
-      <td class="piz-proc" style="${procTdStyle}">${_pizarraCircle(procEstado.Soldadura,circleSize)}</td>
+      <td class="piz-proc" style="${procTdStyle}">${_pizarraCircle(procEstado.Torno,circleSize,proj,ot,'Torno')}</td>
+      <td class="piz-proc" style="${procTdStyle}">${_pizarraCircle(procEstado.Centro,circleSize,proj,ot,'Centro')}</td>
+      <td class="piz-proc" style="${procTdStyle}">${_pizarraCircle(procEstado.Roscado,circleSize,proj,ot,'Roscado')}</td>
+      <td class="piz-proc" style="${procTdStyle}">${_pizarraCircle(procEstado.Soldadura,circleSize,proj,ot,'Soldadura')}</td>
     </tr>`;
   }).join('');
 
@@ -5996,6 +6097,84 @@ function printPizarra(){
   <script>window.onload=()=>window.print()<\/script>
   </body></html>`);
   win.document.close();
+}
+
+// ── Modal: cargar stock de un proceso desde la Pizarra ──────────
+let _pizStockCtx=null; // {projId,otKey,proc} de la carga en curso
+
+function openPizarraStockModal(projId,otKey,proc){
+  const proj=projects.find(p=>p.id===projId);
+  if(!proj)return;
+  const ot=(proj.ordenes||[]).find(o=>(o._uid||o.otNum)===otKey);
+  if(!ot)return;
+  _pizStockCtx={projId,otKey,proc};
+
+  const estadoInfo=_pizarraProcesoEstado(ot,proj)[proc];
+  const target=_pizarraPendingRunForProc(ot,proj,proc);
+
+  // Nombre del ítem, aunque no haya run pendiente (para el mensaje de aviso).
+  const runList=ot.runs&&ot.runs.length>0?ot.runs:[{compId:ot.compId,runId:ot.runId}];
+  const subIds=new Set();
+  runList.forEach(({compId})=>{ const c=proj.components.find(x=>x.id===compId); if(c)subIds.add(c.subId); });
+  const anySub=[...subIds].map(sid=>proj.subconjuntos.find(s=>s.id===sid)).find(Boolean);
+
+  document.getElementById('piz-stock-title').textContent=`${anySub?.name||'?'} — ${proc}`;
+
+  const warnEl=document.getElementById('piz-stock-warn');
+  const formEl=document.getElementById('piz-stock-form');
+  const confirmBtn=document.getElementById('piz-stock-confirm-btn');
+
+  if(!target){
+    document.getElementById('piz-stock-info').textContent='';
+    warnEl.textContent='Este proceso no tiene ningún run pendiente — no se puede cargar stock.';
+    warnEl.style.display='block';
+    formEl.style.display='none';
+    confirmBtn.style.display='none';
+  } else {
+    const fab=estadoInfo?estadoInfo.fab:(target.run.fabricado||0);
+    const qty=estadoInfo?estadoInfo.qty:(target.run.qty||1);
+    document.getElementById('piz-stock-info').textContent=`Fabricado ${fab} de ${qty}`;
+    const falta=Math.max(1,qty-fab);
+    const qtyInput=document.getElementById('piz-stock-qty');
+    qtyInput.value=falta; qtyInput.min=1; qtyInput.max=falta;
+    document.getElementById('piz-stock-dep').innerHTML=
+      DEPOSITOS.map(d=>`<option value="${d}" ${d==='Alemi'?'selected':''}>${d}</option>`).join('');
+    document.getElementById('piz-stock-nota').value='';
+    warnEl.style.display='none';
+    formEl.style.display='block';
+    confirmBtn.style.display='block';
+  }
+  document.getElementById('modal-pizarra-stock').style.display='flex';
+}
+
+function closePizarraStockModal(){
+  document.getElementById('modal-pizarra-stock').style.display='none';
+  _pizStockCtx=null;
+}
+
+function confirmPizarraStock(){
+  if(!_pizStockCtx)return;
+  const{projId,otKey,proc}=_pizStockCtx;
+  const proj=projects.find(p=>p.id===projId);
+  if(!proj)return;
+  const ot=(proj.ordenes||[]).find(o=>(o._uid||o.otNum)===otKey);
+  if(!ot)return;
+  const target=_pizarraPendingRunForProc(ot,proj,proc);
+  if(!target)return;
+
+  const estadoInfo=_pizarraProcesoEstado(ot,proj)[proc];
+  const fab=estadoInfo?estadoInfo.fab:(target.run.fabricado||0);
+  const qtyMax=Math.max(1,(estadoInfo?estadoInfo.qty:(target.run.qty||1))-fab);
+  const qtyInput=Math.max(1,parseInt(document.getElementById('piz-stock-qty').value)||0);
+  const qty=Math.min(qtyMax,qtyInput);
+  const dep=document.getElementById('piz-stock-dep').value;
+  const nota=document.getElementById('piz-stock-nota').value.trim();
+  if(qty<=0||!dep)return;
+
+  _addStockDepToProject(proj,target.comp.id,dep,qty,nota,target.run.id,'desde Pizarra');
+  closePizarraStockModal();
+  scheduleSync();
+  renderPizarra();
 }
 
 // ── OT Filter state ──────────────────────────────────────────
