@@ -406,8 +406,33 @@ function fmtTs(d){
   const pad=n=>String(n).padStart(2,'0');
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
+// Tope de registros de movLog que se guardan en Firestore por proyecto.
+// Los que excedan el tope (los más viejos) se recortan y se archivan en
+// localStorage — nunca se guardan en el documento.
+const MOVLOG_MAX=300;
+
+function _archiveDiscardedMovLog(projId,projName,entries){
+  if(!entries.length)return;
+  const key='movlog_archive';
+  let archive;
+  try{ archive=JSON.parse(localStorage.getItem(key)||'{}'); }catch(e){ archive={}; }
+  if(!archive[projId]) archive[projId]={projName,entries:[]};
+  archive[projId].projName=projName;
+  archive[projId].entries.push(...entries);
+  try{
+    localStorage.setItem(key,JSON.stringify(archive));
+  }catch(e){
+    console.error('No se pudo archivar movLog descartado en localStorage:',e);
+  }
+}
+
 function addLog(tipo,title,detail,nota){
-  currentProject().movLog.unshift({ts:fmtTs(new Date()),tipo,title,detail,nota:nota||''});
+  const proj=currentProject();
+  proj.movLog.unshift({ts:fmtTs(new Date()),tipo,title,detail,nota:nota||''});
+  if(proj.movLog.length>MOVLOG_MAX){
+    const discarded=proj.movLog.splice(MOVLOG_MAX);
+    _archiveDiscardedMovLog(proj.id,proj.name,discarded);
+  }
   if(typeof scheduleSync==='function'&&_userId)scheduleSync();
 }
 function setLogFilter(f){
