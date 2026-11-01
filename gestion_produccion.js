@@ -1984,13 +1984,36 @@ function _lotesLibres(){
   return libres;
 }
 // Descripciones de MP (comp.descripcionMP) de los componentes Compra MP / MP
-// Provista por Cliente de un ítem (subconjunto) — para la fila "MATERIA PRIMA"
-// de la OT, junto a "LOTE MP".
+// Provista por Cliente de un ítem (subconjunto) — fuente 1 para la fila
+// "MATERIA PRIMA" de la OT.
 function _descMPListDeItem(proj,subId){
   const list=[];
   (proj.components||[]).filter(c=>c.subId===subId&&(c.machine==='Compra MP'||c.machine==='MP Provista por Cliente')&&c.descripcionMP)
     .forEach(c=>{ if(!list.includes(c.descripcionMP))list.push(c.descripcionMP); });
   return list;
+}
+// Descripciones de MP de las dependencias (comp.deps) de UN componente —
+// fuente 2 para la fila "MATERIA PRIMA" de la OT. Solo descripcionMP, sin
+// el nombre del componente.
+function _descMPListDeDeps(proj,compId){
+  const list=[];
+  const comp=(proj.components||[]).find(c=>c.id===compId);
+  if(!comp)return list;
+  (comp.deps||[]).forEach(depId=>{
+    const dep=proj.components.find(c=>c.id===depId);
+    if(dep&&(dep.machine==='Compra MP'||dep.machine==='MP Provista por Cliente')&&dep.descripcionMP){
+      if(!list.includes(dep.descripcionMP))list.push(dep.descripcionMP);
+    }
+  });
+  return list;
+}
+// Texto único de "MATERIA PRIMA" para la OT: une las dos fuentes (mismo
+// ítem + dependencias), sin duplicados, separado por " / ".
+function _mpDescTxtForOT(proj,compIds,subIds){
+  const list=[];
+  compIds.forEach(cid=>_descMPListDeDeps(proj,cid).forEach(t=>{ if(!list.includes(t))list.push(t); }));
+  subIds.forEach(sid=>_descMPListDeItem(proj,sid).forEach(t=>{ if(!list.includes(t))list.push(t); }));
+  return list.join(' / ');
 }
 
 // Etiquetas de lote activo de un ítem (subconjunto), para Stock/OT/Pizarra.
@@ -5162,14 +5185,12 @@ function openOT(compId,runId){
   const loteText=document.getElementById('ot-lote-text');
   const descWrap=document.getElementById('ot-descmp-wrap');
   const descText=document.getElementById('ot-descmp-text');
-  const rowWrap=document.getElementById('ot-lote-mp-row');
   const lotesActivos=_lotesActivosDeSub(currentProject().id,comp.subId);
-  const descMPTxt=_descMPListDeItem(currentProject(),comp.subId).join(' / ');
+  const descMPTxt=_mpDescTxtForOT(currentProject(),[compId],new Set([comp.subId]));
   loteWrap.style.display=lotesActivos.length?'block':'none';
   if(lotesActivos.length) loteText.textContent=lotesActivos.map(l=>l.lote).join(', ');
   descWrap.style.display=descMPTxt?'block':'none';
   if(descMPTxt) descText.textContent=descMPTxt;
-  rowWrap.style.display=(lotesActivos.length||descMPTxt)?'flex':'none';
 
   // comprobar si ya existe OT para este run
   const existing=findOTForRun(compId,runId);
@@ -5445,40 +5466,23 @@ function printOT(){
     listo:    document.getElementById('ot-chk-listo').checked,
   };
 
-  // Descripción de MP (desde componentes de los que depende esta OT) para que
-  // el operario sepa cómo viene la materia prima (Compra MP / MP Provista por Cliente)
+  // Ítems/componentes vinculados a esta OT (uno o varios, vía ot.runs).
   const _otFound=_findOTByKey(_otEditNum);
   const _linkedCompIds=_otFound?.ot?.runs?.length?_otFound.ot.runs.map(r=>r.compId):[_otCompId];
-  const mpDescs=[];
-  _linkedCompIds.forEach(cid=>{
-    const comp=components.find(c=>c.id===cid);
-    if(!comp)return;
-    (comp.deps||[]).forEach(depId=>{
-      const dep=components.find(c=>c.id===depId);
-      if(!dep)return;
-      if((dep.machine==='Compra MP'||dep.machine==='MP Provista por Cliente')&&dep.descripcionMP){
-        const txt=`${dep.name||'?'}: ${dep.descripcionMP}`;
-        if(!mpDescs.includes(txt))mpDescs.push(txt);
-      }
-    });
-  });
-  const mpDescTxt=mpDescs.join(' · ');
-
-  // Lote(s) activos del ítem (subconjunto) al que pertenece el/los componente(s) de esta OT.
   const _linkedSubIds=new Set();
   _linkedCompIds.forEach(cid=>{
     const c=components.find(x=>x.id===cid);
     if(c)_linkedSubIds.add(c.subId);
   });
+
+  // Lote(s) activos del ítem (subconjunto) al que pertenece el/los componente(s) de esta OT.
   const loteSet=new Set();
   _linkedSubIds.forEach(sid=>_lotesActivosDeSub(currentProject().id,sid).forEach(l=>loteSet.add(l.lote)));
   const loteTxt=[...loteSet].join(', ');
 
-  // Descripción de MP de los componentes Compra MP / MP Provista por Cliente
-  // del MISMO ítem (subconjunto) que esta OT — distinto de mpDescTxt (que mira deps).
-  const descMPList=[];
-  _linkedSubIds.forEach(sid=>_descMPListDeItem(currentProject(),sid).forEach(t=>{ if(!descMPList.includes(t))descMPList.push(t); }));
-  const descMPItemTxt=descMPList.join(' / ');
+  // Descripción de la materia prima: solo descripcionMP (sin nombre de
+  // componente), combinando componentes del mismo ítem y dependencias.
+  const mpDescTxt=_mpDescTxtForOT(currentProject(),_linkedCompIds,_linkedSubIds);
 
   function cb(checked){
     return `<span style="display:inline-block;width:14px;height:14px;border:2px solid #333;
@@ -5635,25 +5639,21 @@ function printOT(){
         </div>
       </div>
 
-      ${(loteTxt||descMPItemTxt)?`
-      <!-- Fila LOTE MP + MATERIA PRIMA del ítem: bien visible -->
-      <div class="frow" style="grid-template-columns:1fr 1fr">
-        <div class="cell">
+      ${loteTxt?`
+      <!-- Fila LOTE MP: bien visible -->
+      <div class="frow" style="grid-template-columns:1fr">
+        <div class="cell" style="border-right:none">
           <div class="cell-lbl">LOTE MP</div>
           <div class="cell-val" style="font-size:14pt;font-weight:900">${safe(loteTxt,200)}</div>
-        </div>
-        <div class="cell" style="border-right:none">
-          <div class="cell-lbl">MATERIA PRIMA</div>
-          <div class="cell-val" style="font-size:7.5pt;font-weight:600;line-height:1.15;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;align-items:flex-start;overflow:hidden;max-height:2.3em">${safe(descMPItemTxt,300)}</div>
         </div>
       </div>`:''}
 
       ${mpDescTxt?`
-      <!-- Fila MP: cómo viene la materia prima -->
+      <!-- Fila MATERIA PRIMA: solo descripcionMP, sin nombre de componente -->
       <div class="frow" style="grid-template-columns:1fr">
         <div class="cell" style="border-right:none">
           <div class="cell-lbl">MATERIA PRIMA</div>
-          <div class="cell-val" style="font-size:11pt">${safe(mpDescTxt,200)}</div>
+          <div class="cell-val" style="font-size:7.5pt;font-weight:600;line-height:1.15;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;align-items:flex-start;overflow:hidden;max-height:2.3em">${safe(mpDescTxt,300)}</div>
         </div>
       </div>`:''}
 
