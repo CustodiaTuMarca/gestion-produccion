@@ -102,7 +102,9 @@ function renderHojasTabla() {
       <td>${_escHoja(h.cliente || '—')}</td>
       <td style="font-size:11px;color:var(--gris-oscuro)">${_escHoja(h.resumen || '—')}</td>
       <td>${_fmtFechaHoja(h.actualizada)}</td>
-      <td style="text-align:center">${nOt}</td>
+      <td style="text-align:center">${nOt > 0
+        ? `<a href="#" onclick="verOtAsociadas('${h.id}');return false" style="color:#2980b9;font-weight:700;text-decoration:underline;cursor:pointer">${nOt}</a>`
+        : `<span style="color:#ccc">${nOt}</span>`}</td>
       <td style="white-space:nowrap">
         <div style="display:flex;gap:4px">
           <button onclick="abrirHoja('${h.id}')" style="font-size:10px;padding:2px 8px;border:1px solid var(--negro);border-radius:4px;cursor:pointer;background:var(--negro);color:var(--blanco)">Abrir</button>
@@ -442,4 +444,127 @@ function _avisoPopupHojaBloqueado(hojaId) {
     <a href="hoja_de_procesos.html?id=${encodeURIComponent(hojaId)}&imprimir=1" target="_blank" rel="noopener" style="color:var(--amarillo);text-decoration:underline">Abrirla a mano</a>
     <button type="button" style="background:none;border:none;color:var(--amarillo);cursor:pointer;font-size:14px;line-height:1" onclick="this.parentElement.remove()">✕</button>`;
   document.body.appendChild(div);
+}
+
+/* ───────────────── Modal "OT asociadas a <hoja>" (solo lectura) ─────────────────
+   Se abre únicamente desde la columna de OT de la solapa «Hojas de proceso»
+   (NO desde el botón «Ver hoja» del modal de OT). Busca las OT en memoria, en
+   projects[] (ya cargado por gestion_produccion.js) — sin leer nada de Firestore. */
+
+/* El otNum es único entre todos los proyectos (la propia app lo valida al crear
+   una OT manualmente), pero los IDS internos de componente/run sí se repiten entre
+   proyectos — por eso se recorren TODOS los proyectos buscando por otNum, sin
+   asumir a qué proyecto pertenece */
+function _buscarOTPorNumero(otNum) {
+  for (const p of (projects || [])) {
+    const ot = (p.ordenes || []).find(o => o.otNum === otNum);
+    if (ot) return { ot, proj: p };
+  }
+  return null;
+}
+
+/* Trata '', '—', 0 y valores no numéricos como "sin dato" */
+function _numOrNull(v) {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function _asegurarModalOtAsociadas() {
+  let modal = document.getElementById('modal-ot-asociadas');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'modal-ot-asociadas';
+  modal.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:2000;align-items:center;justify-content:center';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:20px;width:780px;max-width:95vw;max-height:85vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.2)">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px">
+        <div id="modal-ot-asociadas-title" style="font-weight:700;font-size:15px"></div>
+        <button onclick="cerrarModalOtAsociadas()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#888;line-height:1;flex-shrink:0">✕</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="tbl" id="modal-ot-asociadas-tabla">
+          <thead><tr>
+            <th>N° OT</th><th>Proyecto</th><th>Cliente</th><th>Fecha pedido</th>
+            <th>Unid.</th><th>Estado</th><th>T. Producción</th><th>T. Total</th><th>T./Unidad</th>
+          </tr></thead>
+          <tbody id="modal-ot-asociadas-tabla-body"></tbody>
+        </table>
+      </div>
+      <div id="modal-ot-asociadas-resumen" style="margin-top:10px;font-size:11px;color:var(--gris-oscuro)"></div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('mousedown', e => { if (e.target === modal) cerrarModalOtAsociadas(); });
+  return modal;
+}
+
+function cerrarModalOtAsociadas() {
+  const modal = document.getElementById('modal-ot-asociadas');
+  if (modal) modal.style.display = 'none';
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const modal = document.getElementById('modal-ot-asociadas');
+  if (modal && modal.style.display !== 'none') cerrarModalOtAsociadas();
+});
+
+function verOtAsociadas(hojaId) {
+  const h = _hojasCache.find(x => x.id === hojaId);
+  if (!h) return;
+  const modal = _asegurarModalOtAsociadas();
+  document.getElementById('modal-ot-asociadas-title').textContent =
+    `OT asociadas a ${h.codigo || '—'} — ${h.nombre || 'sin nombre'}`;
+
+  const otNums = [...new Set(h.otNums || [])].sort((a, b) => b - a);
+  const colorEstado = { Anulada: '#c0392b', Completada: '#1a7a4a', Abierta: '#2980b9' };
+
+  const filas = otNums.map(n => {
+    const found = _buscarOTPorNumero(n);
+    if (!found) return { otNum: n, noEncontrada: true };
+    const { ot, proj } = found;
+    const tProduc = _numOrNull(ot.tProduc);
+    const tTotal = _numOrNull(ot.tTotal);
+    const unidadesNum = _numOrNull(ot.unidades);
+    const tPorUnidad = (tTotal != null && unidadesNum != null) ? tTotal / unidadesNum : null;
+    return {
+      otNum: n,
+      proyecto: proj.name || '—',
+      cliente: ot.cliente || '—',
+      fecha: ot.fechaPedido,
+      unidades: ot.unidades || '—',
+      estado: ot.anulada ? 'Anulada' : (ot.completada ? 'Completada' : 'Abierta'),
+      completada: !!ot.completada && !ot.anulada,
+      tProduc, tTotal, tPorUnidad,
+    };
+  });
+
+  const tbody = document.getElementById('modal-ot-asociadas-tabla-body');
+  if (!filas.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:16px">Sin OT asociadas.</td></tr>';
+  } else {
+    tbody.innerHTML = filas.map(f => f.noEncontrada
+      ? `<tr><td style="font-weight:700">OT ${f.otNum}</td><td colspan="8" style="color:#aaa;font-style:italic">OT no encontrada</td></tr>`
+      : `<tr>
+          <td style="font-weight:700">OT ${f.otNum}</td>
+          <td>${_escHoja(f.proyecto)}</td>
+          <td>${_escHoja(f.cliente)}</td>
+          <td>${fmtDate(f.fecha)}</td>
+          <td style="text-align:center">${_escHoja(String(f.unidades))}</td>
+          <td><span style="color:${colorEstado[f.estado]};font-weight:700">${f.estado}</span></td>
+          <td style="text-align:center">${f.tProduc != null ? f.tProduc + ' min' : '—'}</td>
+          <td style="text-align:center">${f.tTotal != null ? f.tTotal + ' min' : '—'}</td>
+          <td style="text-align:center">${f.tPorUnidad != null ? f.tPorUnidad.toFixed(1) + ' min' : '—'}</td>
+        </tr>`
+    ).join('');
+  }
+
+  const completadasConDato = filas.filter(f => !f.noEncontrada && f.completada && f.tPorUnidad != null);
+  const promedio = completadasConDato.length
+    ? completadasConDato.reduce((s, f) => s + f.tPorUnidad, 0) / completadasConDato.length
+    : null;
+  document.getElementById('modal-ot-asociadas-resumen').textContent =
+    `${filas.length} OT asociada${filas.length !== 1 ? 's' : ''}`
+    + (promedio != null ? ` · Promedio de tiempo por unidad (OT completadas): ${promedio.toFixed(1)} min` : '');
+
+  modal.style.display = 'flex';
 }
