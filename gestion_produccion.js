@@ -524,7 +524,7 @@ function saveTitle(){
 
 // ── Tabs ─────────────────────────────────────────────────────
 function showTab(t){
-  const names=['dashboard','config','stock','entregas','gantt','pendientes','ot','np','historial','pizarra','lotes'];
+  const names=['dashboard','config','stock','entregas','gantt','pendientes','ot','np','historial','pizarra','lotes','hojas'];
   document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',names[i]===t));
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
   document.getElementById('pane-'+t).classList.add('active');
@@ -538,6 +538,7 @@ function showTab(t){
   if(t==='pendientes')renderPendientes();
   if(t==='pizarra')renderPizarra();
   if(t==='lotes')renderLotes();
+  if(t==='hojas'&&typeof renderHojas==='function')renderHojas();
   if(t==='config'||t==='stock') requestAnimationFrame(applyTabScroll);
 }
 

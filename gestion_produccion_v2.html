@@ -87,6 +87,7 @@
   <button class="tab" onclick="showTab('historial')">Historial</button>
   <button class="tab" onclick="showTab('pizarra')">📌 Pizarra</button>
   <button class="tab" onclick="showTab('lotes')">🏷 Lotes MP</button>
+  <button class="tab" onclick="showTab('hojas')">🗒 Hojas de proceso</button>
 </div>
 
 <!-- DASHBOARD -->
@@ -768,6 +769,37 @@
   <div id="lotes-content"></div>
 </div>
 
+<!-- HOJAS DE PROCESO -->
+<div class="pane" id="pane-hojas">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+    <div class="stitle" style="margin-bottom:0">Hojas de proceso</div>
+    <div style="display:flex;gap:8px">
+      <button onclick="renderHojas()" style="font-size:12px;font-weight:600;color:var(--gris-oscuro);background:none;border:1.5px solid var(--gris-medio);border-radius:6px;padding:5px 14px;cursor:pointer">↻ Actualizar</button>
+      <button onclick="window.open('hoja_de_procesos.html','_blank')" style="font-size:12px;font-weight:600;color:var(--negro);background:var(--amarillo);border:none;border-radius:6px;padding:5px 14px;cursor:pointer">+ Nueva hoja</button>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
+    <input id="hojas-filter-text" type="text" placeholder="Buscar por código, nombre o cliente..."
+      style="flex:1;min-width:200px;font-size:12px"
+      oninput="renderHojasTabla()">
+    <span id="hojas-count" style="font-size:11px;color:var(--gris-oscuro)"></span>
+  </div>
+  <div style="overflow-x:auto">
+    <table class="tbl" id="hojas-tabla">
+      <thead><tr>
+        <th>Código de plano</th>
+        <th>Nombre / pieza</th>
+        <th>Cliente</th>
+        <th>Resumen</th>
+        <th>Última modificación</th>
+        <th>OT</th>
+        <th>Acciones</th>
+      </tr></thead>
+      <tbody id="hojas-tabla-body"></tbody>
+    </table>
+  </div>
+</div>
+
 <!-- MODAL ELEGIR LOTE MP -->
 <div id="modal-lote-pick" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:2000;align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:14px;padding:20px;width:380px;max-width:95vw;box-shadow:0 8px 32px rgba(0,0,0,.2)">
@@ -1107,5 +1139,6 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="gestion_produccion.js?v=20261106"></script>
+<script src="hojas_proceso.js?v=20261116"></script>
 </body>
 </html>
