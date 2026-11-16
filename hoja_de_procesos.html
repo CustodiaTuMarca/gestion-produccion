@@ -785,7 +785,30 @@ function idDeBloque(b) {
   return w.dataset.id;
 }
 
-/* Contenido de la hoja SIN imágenes ni TXT — esto es lo que va en la ficha */
+/* Firestore no admite arrays que contengan otros arrays directamente (p.ej. filas de tablas,
+   que son "array de arrays"). Esos campos se guardan como JSON.stringify y se reconstruyen
+   con JSON.parse al leer. Si ya viene como array/objeto (dato viejo o escrito a mano), se usa tal cual. */
+function aCampoPlano(v) { return JSON.stringify(v ?? []); }
+function deCampoPlano(v, porDefecto) {
+  if (v == null) return porDefecto;
+  if (typeof v !== 'string') return v; // ya es array/objeto: compatibilidad con datos previos
+  try { return JSON.parse(v); } catch (e) { return porDefecto; }
+}
+
+/* Quita recursivamente los valores undefined (Firestore los rechaza) */
+function limpiarUndefined(v) {
+  if (Array.isArray(v)) return v.map(limpiarUndefined);
+  if (v && typeof v === 'object') {
+    const out = {};
+    for (const k in v) { if (v[k] !== undefined) out[k] = limpiarUndefined(v[k]); }
+    return out;
+  }
+  return v === undefined ? null : v;
+}
+
+/* Contenido de la hoja SIN imágenes ni TXT — esto es lo que va en la ficha.
+   "ops", "cal" y "herr" de cada bloque son tablas (array de filas, cada fila un array de
+   celdas) → array de arrays → se guardan como texto JSON (ver aCampoPlano). */
 function datosParaFicha() {
   const campos = {};
   document.querySelectorAll(CAMPOS).forEach(el => { campos[el.id] = el.value; });
@@ -793,12 +816,12 @@ function datosParaFicha() {
   return {
     version: 1,
     campos,
-    ops: filas('#t_ops'), cal: filas('#t_cal'),
+    ops: aCampoPlano(filas('#t_ops')), cal: aCampoPlano(filas('#t_cal')),
     bloques: [...document.querySelectorAll('#bloques .bloque')].map(b => ({
       id: idDeBloque(b),
       tipo: b.dataset.tipo,
       datos: Object.fromEntries([...b.querySelectorAll('[data-k]')].map(el => [el.dataset.k, el.value])),
-      herr: [...b.querySelectorAll('.t_herr tbody tr')].map(valores),
+      herr: aCampoPlano([...b.querySelectorAll('.t_herr tbody tr')].map(valores)),
     })),
   };
 }
@@ -928,12 +951,15 @@ async function guardarEnNube() {
         idsVivos.add(id);
         const payload = { tipo: p.tipo, bloqueId: p.bloqueId, orden: p.orden, titulo: p.titulo };
         if (p.tipo === 'plano') payload.dataUrl = p.dataUrl;
-        if (p.tipo === 'imagen') { payload.dataUrl = p.dataUrl; payload.tit = p.tit; payload.formas = p.formas; }
+        /* "formas" (anotaciones) es un array de objetos con puntos — se guarda como texto
+           JSON por las mismas dudas de compatibilidad que ops/cal/herr, aunque no sea un
+           array anidado en sí mismo */
+        if (p.tipo === 'imagen') { payload.dataUrl = p.dataUrl; payload.tit = p.tit; payload.formas = aCampoPlano(p.formas); }
         if (p.tipo === 'txt') {
           payload.texto = p.texto; payload.imprimir = p.imprimir;
           if (p.grupo) { payload.grupo = p.grupo; payload.parte = p.parte; payload.partes = p.partes; }
         }
-        batch.set(adjCol.doc(id), payload);
+        batch.set(adjCol.doc(id), limpiarUndefined(payload));
       }
       a.dom.dataset.nubeIds = JSON.stringify(idsNuevos);
       a.dom.dataset.nubeHash = hashContenido(a);
@@ -943,14 +969,14 @@ async function guardarEnNube() {
       if (!idsVivos.has(idViejo)) batch.delete(adjCol.doc(idViejo));
     }
 
-    const datos = datosParaFicha();
+    const datos = limpiarUndefined(datosParaFicha());
     const fichaPayload = {
       codigo,
       nombre: datos.campos.desc || '',
       cliente: datos.campos.cliente || '',
       resumen: resumenTexto(),
       datos,
-      otNums: _otNums || [],
+      otNums: limpiarUndefined(_otNums || []),
       actualizada: firebase.firestore.FieldValue.serverTimestamp(),
       nAdjuntos: idsVivos.size,
     };
@@ -990,6 +1016,7 @@ async function cargarDeNube(id) {
     const grupos = {};
     adjSnap.forEach(docu => {
       const a = { id: docu.id, ...docu.data() };
+      if (a.tipo === 'imagen') a.formas = deCampoPlano(a.formas, []);
       if (a.tipo === 'txt' && a.grupo) { (grupos[a.grupo] = grupos[a.grupo] || []).push(a); }
       else { (porBloque[a.bloqueId] = porBloque[a.bloqueId] || []).push({ ...a, _ids: [a.id] }); }
     });
@@ -1005,10 +1032,10 @@ async function cargarDeNube(id) {
     const obj = {
       version: 1,
       campos: data.datos?.campos || {},
-      ops: data.datos?.ops || [],
-      cal: data.datos?.cal || [],
+      ops: deCampoPlano(data.datos?.ops, []),
+      cal: deCampoPlano(data.datos?.cal, []),
       bloques: (data.datos?.bloques || []).map(b => ({
-        id: b.id, tipo: b.tipo, datos: b.datos, herr: b.herr,
+        id: b.id, tipo: b.tipo, datos: b.datos, herr: deCampoPlano(b.herr, []),
         adjuntos: (porBloque[b.id] || []).map(a => {
           const limpio = { tipo: a.tipo, titulo: a.titulo, tit: a.tit, dataUrl: a.dataUrl, texto: a.texto, imprimir: a.imprimir, formas: a.formas };
           return {
