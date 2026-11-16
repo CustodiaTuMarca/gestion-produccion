@@ -1,0 +1,1057 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hoja de procesos</title>
+<!-- Firebase (mismo proyecto que Gestión Producción) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<style>
+  :root { --borde:#7a7f87; --fijo:#e6e9ee; --acento:#1f4e79; --texto:#1a1a1a; }
+  * { box-sizing:border-box; }
+  body { font:13px/1.35 Arial, Helvetica, sans-serif; color:var(--texto); background:#f3f4f6; margin:0; padding:12px; }
+  .hoja { max-width:210mm; margin:0 auto; background:#fff; padding:10mm; border:1px solid #ccc; }
+  h1 { font-size:18px; margin:0 0 6px; color:var(--acento); }
+  h2 { font-size:13px; margin:14px 0 4px; padding:3px 6px; background:var(--acento); color:#fff; text-transform:uppercase; letter-spacing:.03em; }
+  h3 { font-size:12px; margin:0; }
+  .leyenda { font-size:11px; color:#444; margin-bottom:6px; }
+  .leyenda .k { display:inline-block; padding:0 6px; background:var(--fijo); border:1px solid var(--borde); }
+  .leyenda .v { display:inline-block; padding:0 6px; background:#fff; border:1px solid var(--borde); }
+  .grid { display:grid; gap:0; border:1px solid var(--borde); border-right:0; border-bottom:0; }
+  .g4 { grid-template-columns:repeat(4,1fr); }
+  .g3 { grid-template-columns:repeat(3,1fr); }
+  .g2 { grid-template-columns:repeat(2,1fr); }
+  .c { border-right:1px solid var(--borde); border-bottom:1px solid var(--borde); padding:0; min-width:0; }
+  .c.w2 { grid-column:span 2; } .c.w3 { grid-column:span 3; } .c.w4 { grid-column:span 4; }
+  .c label { display:block; background:var(--fijo); font-size:10px; font-weight:bold; padding:2px 4px; text-transform:uppercase; }
+  .f { width:100%; border:0; padding:3px 4px; font:inherit; background:#fff; resize:none; overflow:hidden; display:block; }
+  .f:focus { outline:2px solid #4a90d9; outline-offset:-2px; }
+  select.f { padding:3px 2px; }
+  table { width:100%; border-collapse:collapse; table-layout:fixed; }
+  th, td { border:1px solid var(--borde); padding:0; vertical-align:top; }
+  th { background:var(--fijo); font-size:10px; text-transform:uppercase; padding:3px 4px; text-align:left; }
+  td.x { width:26px; text-align:center; }
+  .bloque { border:1px solid var(--acento); margin:8px 0; padding:0 0 4px; }
+  .bloque > header { display:flex; justify-content:space-between; align-items:center; background:#dbe7f3; padding:3px 6px; }
+  .bloque .cuerpo { padding:4px; }
+  .adj-zona { margin:-4px 0 8px; padding:4px; border:1px solid var(--acento); border-top:1px dashed var(--acento); background:#f7fafd; }
+  .adj-zona .barra { margin:0 0 4px; gap:10px; }
+  .sub { font-size:10px; font-weight:bold; text-transform:uppercase; margin:6px 0 2px; }
+  .nota { font-size:11px; border:1px dashed #b45309; background:#fff7ed; padding:4px 6px; margin-top:8px; }
+  button { font:inherit; padding:4px 10px; border:1px solid var(--acento); background:#fff; color:var(--acento); border-radius:3px; cursor:pointer; }
+  button:hover { background:#eaf2fa; }
+  button.pri { background:var(--acento); color:#fff; }
+  button.del { border-color:#b91c1c; color:#b91c1c; padding:0 6px; }
+  .barra { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; }
+  .adjunto { margin-top:6px; border:1px solid var(--borde); padding:4px; }
+  .adjunto img { max-width:100%; display:block; }
+  .adjunto pre { white-space:pre-wrap; font:11px/1.3 Consolas, monospace; margin:4px 0 0; max-height:300px; overflow:auto; }
+  .medida { position:absolute; visibility:hidden; left:-9999px; top:0; width:194mm; margin:0; white-space:pre-wrap; font:9pt/1.25 Consolas, monospace; }
+  .vacio { color:#777; font-style:italic; padding:4px; }
+  .resumen { font-size:12px; font-weight:bold; margin:0 0 6px; padding:4px 6px; border:1px solid var(--acento); background:#dbe7f3; }
+  .adjunto canvas { max-width:100%; display:block; cursor:crosshair; touch-action:none; border:1px solid var(--borde); }
+  .adjunto .tit-img { border:1px solid var(--borde); font-weight:bold; margin-bottom:4px; }
+  .herr-img { align-items:center; margin:0 0 4px; }
+  .herr-img button.act { background:var(--acento); color:#fff; }
+  @media print {
+    @page { size:A4; margin:8mm; }
+    body { background:#fff; padding:0; }
+    .hoja { border:0; padding:0; max-width:none; }
+    .no-print { display:none !important; }
+    .f { overflow:visible; }
+    h2, th, .c label, .bloque > header { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .bloque, tr { break-inside:avoid; }
+    .adjunto { border:0; padding:0; margin:0; }
+    .adjunto.noimp { display:none !important; }
+    /* Plano: una hoja A4 completa, sin título */
+    .adjunto.plano { break-before:page; text-align:center; }
+    .adjunto.plano .sub { display:none !important; }
+    /* Plano más ancho que alto: la hoja se imprime en horizontal */
+    @page horizontal { size:A4 landscape; margin:8mm; }
+    .adjunto.plano.apaisado { page:horizontal; }
+    .adjunto.plano.apaisado img { max-height:190mm; }
+    .adjunto.plano img { max-width:100%; max-height:272mm; width:auto; height:auto; margin:0 auto; }
+    /* Imagen anotada: también una hoja A4 completa, con su título arriba */
+    .adjunto.imagen canvas { max-width:100%; max-height:255mm; width:auto; height:auto; margin:0 auto; border:0; }
+    .adjunto.imagen.apaisado canvas { max-height:175mm; }
+    .adjunto.imagen .tit-img { border:0; font:bold 16px Arial, Helvetica, sans-serif; text-align:center; padding:0 0 4mm; }
+    .adjunto.imagen .tit-img.vacio-imp { display:none; }
+    /* Programa: arranca en hoja nueva; 2 columnas si no entra en una; sigue en otra hoja si hace falta */
+    .adjunto.prog { break-before:page; }
+    .adjunto.prog .sub button { display:none; }
+    .adjunto.prog pre { max-height:none; overflow:visible; font:9pt/1.25 Consolas, monospace; }
+    .adjunto.prog pre.dos-col { column-count:2; column-gap:8mm; column-rule:1px solid #999; }
+    /* Los adjuntos van debajo de su bloque; después del último, lo que sigue arranca en hoja nueva */
+    .adj-zona { margin:0; padding:0; border:0; background:none; }
+    .adjuntos > .adjunto:last-child { break-after:page; }
+    /* Bloque con imagen: el bloque arranca arriba de una hoja y la primera imagen va debajo, en la misma hoja.
+       El alto disponible (--alto-img) lo calcula prepararImpresion() según lo que ocupa el bloque */
+    .bloque-wrap.con-img { break-before:page; }
+    /* Si el primer bloque lleva imagen, el título de la sección 4 arranca la hoja y el bloque sigue debajo */
+    h2.corta { break-before:page; }
+    .bloque-wrap.con-img.sin-corte { break-before:auto; }
+    .adjunto.plano.junto { break-before:auto; break-inside:avoid; break-after:page; page:auto; }
+    .adjunto.plano.junto.apaisado { page:auto; }
+    .adjunto.plano.junto.junto img, .adjunto.plano.junto.junto canvas { max-width:100%; max-height:var(--alto-img, 150mm); width:auto; height:auto; }
+    .adjunto.plano.junto .tit-img { padding-bottom:2mm; }
+    .adjunto.plano.junto { text-align:center; margin-top:3mm; }
+  }
+  /* Sólo para medir el bloque como va a salir impreso (sin botones y al ancho de la hoja) */
+  .medir .no-print { display:none !important; }
+  .medir .hoja { max-width:none; width:194mm; padding:0; border:0; }
+  .medir .f { overflow:visible; }
+  .adj-zona .aviso-imp { font-size:11px; color:#555; margin:0 0 4px; }
+</style>
+</head>
+<body>
+<div class="hoja">
+
+  <div id="banner-sesion" class="nota no-print" style="display:none;background:#fff7ed;border-color:#b45309">
+    Iniciá sesión en <b>Gestión Producción</b> y volvé a abrir esta hoja para poder guardarla en la nube.
+    <a href="gestion_produccion_v2.html" target="_blank" rel="noopener">Abrir Gestión Producción</a>.
+    Mientras tanto podés seguir usando «Guardar hoja» (archivo local).
+  </div>
+  <div class="no-print barra">
+    <button class="pri req-sesion" data-sc disabled onclick="guardarEnNube()">☁ Guardar en la nube</button>
+    <span id="estado-nube" class="no-print" style="font-size:12px"></span>
+    <button data-sc onclick="guardarHoja()">Guardar hoja (JSON, backup local)</button>
+    <button data-sc onclick="$('#in_abrir').click()">Abrir hoja (JSON)</button>
+    <input type="file" id="in_abrir" accept=".json,application/json" hidden>
+    <button class="pri" data-sc onclick="imprimir()">Imprimir / Guardar como PDF</button>
+    <button onclick="cargarEjemplo()">Cargar ejemplo (eje roscado)</button>
+    <button data-sc onclick="if(confirm('¿Borrar todo lo cargado y empezar una hoja nueva?')) { sucio = false; location.href = location.pathname; }">Hoja nueva</button>
+  </div>
+  <div class="nota no-print">
+    <b>☁ Guardar en la nube</b> guarda esta hoja en tu cuenta de Gestión Producción (necesita sesión iniciada).
+    <b>Guardar hoja (JSON)</b> te deja elegir carpeta y nombre en tu computadora, como respaldo local — con los planos y el programa adjuntos adentro.
+    Con <b>Abrir hoja (JSON)</b> retomás ese archivo. Si cerrás la página con cambios sin guardar, te avisa.
+    Si el botón de imprimir no responde, abrí este archivo en Chrome o Edge y usá Ctrl+P.
+  </div>
+
+  <h1>Hoja de procesos</h1>
+  <div class="resumen" id="resumen"></div>
+  <div class="leyenda">
+    <span class="k">Gris</span> = campo fijo (no se toca) ·
+    <span class="v">Blanco</span> = campo variable (se llena en cada pieza)
+  </div>
+
+  <!-- 1. ENCABEZADO -->
+  <h2>1. Encabezado</h2>
+  <div class="grid g4">
+    <div class="c w2"><label>Cliente</label><textarea class="f" id="cliente" rows="1"></textarea></div>
+    <div class="c"><label>N° pieza / plano</label><textarea class="f" id="plano_n" rows="1"></textarea></div>
+    <div class="c"><label>Revisión</label><textarea class="f" id="rev" rows="1"></textarea></div>
+    <div class="c w4"><label>Descripción</label><textarea class="f" id="desc" rows="1"></textarea></div>
+  </div>
+
+  <!-- 2. MATERIAL -->
+  <h2>2. Material</h2>
+  <div class="grid g4">
+    <div class="c"><label>Tipo / aleación</label><textarea class="f" id="mat" rows="1"></textarea></div>
+    <div class="c w2"><label>Dimensiones materia prima</label><textarea class="f" id="mat_dim" rows="1"></textarea></div>
+    <div class="c"><label>Lote / colada</label><textarea class="f" id="mat_lote" rows="1"></textarea></div>
+  </div>
+
+  <!-- 3. OPERACIONES -->
+  <h2>3. Secuencia de operaciones</h2>
+  <datalist id="maquinas">
+    <option value="Sierra cinta"><option value="Torno CNC"><option value="Centro de mecanizado">
+    <option value="Banco (manual)"><option value="Taladro"><option value="Rectificadora">
+    <option value="Tratamiento externo"><option value="Inspección">
+  </datalist>
+  <table id="t_ops">
+    <colgroup><col style="width:34px"><col style="width:25%"><col><col class="no-print" style="width:26px"></colgroup>
+    <thead><tr><th>Op.</th><th>Máquina / puesto</th><th>Descripción</th><th class="no-print"></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="barra no-print"><button onclick="addOp()">+ Agregar operación</button></div>
+
+  <!-- 4. BLOQUES -->
+  <h2 id="h_bloques">4. Bloques por tipo de operación</h2>
+  <div class="barra no-print">
+    <span>Agregar bloque:</span>
+    <button onclick="addBloque('torno')">Torno CNC</button>
+    <button onclick="addBloque('centro')">Centro de mecanizado</button>
+    <button onclick="addBloque('manual')">Manual (rosca / rebabado)</button>
+    <button onclick="addBloque('otro')">Otro</button>
+  </div>
+  <div id="bloques"></div>
+
+  <!-- 5. CALIDAD -->
+  <h2>5. Control de calidad</h2>
+  <table id="t_cal">
+    <colgroup><col style="width:28%"><col style="width:16%"><col style="width:18%"><col style="width:24%"><col><col class="no-print" style="width:26px"></colgroup>
+    <thead><tr><th>Cota crítica</th><th>Nominal</th><th>Tolerancia</th><th>Instrumento</th><th>Frecuencia</th><th class="no-print"></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="barra no-print"><button onclick="addCal()">+ Agregar cota</button></div>
+
+  <div class="nota">
+    Los valores de herramientas, velocidades y avances anotados en esta hoja son referenciales.
+    Deben validarse con el fabricante de la herramienta y del material antes de usarse.
+  </div>
+
+  <!-- Los adjuntos (plano, imagen, programa) viven dentro de cada bloque de la sección 4 -->
+</div>
+
+<script src="lib/pdf.min.js?v=20261116"></script>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const crear = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; };
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function autoGrow(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }
+document.addEventListener('input', e => { if (e.target.matches('textarea.f')) autoGrow(e.target); });
+let imprimio = false;
+window.addEventListener('beforeprint', () => {
+  imprimio = true; document.querySelectorAll('textarea.f').forEach(autoGrow); ajustarProgramas();
+  document.querySelectorAll('.tit-img').forEach(i => i.classList.toggle('vacio-imp', !i.value.trim()));
+  actualizarResumen();
+  prepararImpresion();
+});
+window.addEventListener('afterprint', () => document.querySelectorAll('textarea.f').forEach(autoGrow));
+
+/* Bloque con imagen: el bloque arranca arriba de una hoja y la primera imagen se ajusta al alto que le queda */
+const HOJA_UTIL_MM = 281;   // A4 (297 mm) menos márgenes de 8 mm
+const MARGEN_MM = 5;        // aire para que no se corte por redondeos
+const TITULO_IMG_MM = 14;   // lugar para el título de una imagen anotada
+function prepararImpresion() {
+  const raiz = document.documentElement;
+  raiz.classList.add('medir');
+  document.querySelectorAll('textarea.f').forEach(autoGrow);
+  const h2 = $('#h_bloques');
+  h2.classList.remove('corta');
+  document.querySelectorAll('.bloque-wrap').forEach((w, i) => {
+    const zona = $('.adjuntos', w);
+    zona.querySelectorAll('.adjunto.junto').forEach(x => x.classList.remove('junto'));
+    w.classList.remove('con-img', 'sin-corte');
+    const a = $('.adjunto.plano', zona);
+    if (!a) return;
+    let mm = $('.bloque', w).getBoundingClientRect().height * 25.4 / 96;
+    if (i === 0) { // el título de la sección 4 viaja con el primer bloque
+      h2.classList.add('corta'); w.classList.add('sin-corte');
+      mm += (h2.getBoundingClientRect().height + 18) * 25.4 / 96;
+    }
+    const titulo = a.classList.contains('imagen') && $('.tit-img', a).value.trim() ? TITULO_IMG_MM : 0;
+    w.classList.add('con-img');
+    a.classList.add('junto');
+    a.style.setProperty('--alto-img', Math.max(40, HOJA_UTIL_MM - MARGEN_MM - mm - titulo).toFixed(1) + 'mm');
+  });
+  raiz.classList.remove('medir');
+}
+
+/* Resumen: cuenta las operaciones de la tabla según la máquina escrita */
+function resumenTexto() {
+  const maq = [...document.querySelectorAll('#t_ops tbody tr')].map(tr => (tr.children[1]?.querySelector('.f')?.value || '').toLowerCase());
+  const n = (re) => maq.filter(m => re.test(m)).length;
+  const total = maq.filter(m => m.trim()).length;
+  return `Operaciones — Torno: ${n(/torno/)} · Centro de mecanizado: ${n(/centro/)} · Total en la hoja: ${total}`;
+}
+function actualizarResumen() { $('#resumen').textContent = resumenTexto(); }
+document.addEventListener('input', actualizarResumen);
+document.addEventListener('change', actualizarResumen);
+document.addEventListener('click', () => setTimeout(actualizarResumen, 0));
+function imprimir() {
+  imprimio = false;
+  try { window.print(); } catch (e) { /* se avisa abajo */ }
+  setTimeout(() => {
+    if (!imprimio) alert('Este visor no deja imprimir.\n\nAbrí el archivo hoja_de_procesos.html con Chrome o Edge (clic derecho > Abrir con) y usá el botón de nuevo o Ctrl+P.');
+  }, 700);
+}
+
+const celda = (v = '', extra = '') => extra
+  ? `<td><input class="f" ${extra} value="${esc(v)}"></td>`
+  : `<td><textarea class="f" rows="1">${esc(v)}</textarea></td>`;
+const borrar = `<td class="x no-print"><button class="del" title="Quitar fila" onclick="this.closest('tr').remove()">×</button></td>`;
+
+function addFila(tbody, valores, opciones = {}) {
+  const tr = crear(`<table><tbody><tr>${
+    valores.map((v, i) => celda(v, opciones[i] || '')).join('')
+  }${borrar}</tr></tbody></table>`).querySelector('tr');
+  tbody.appendChild(tr);
+  tr.querySelectorAll('textarea').forEach(autoGrow);
+  return tr;
+}
+
+function addOp(v = []) {
+  const n = v[0] ?? String((document.querySelectorAll('#t_ops tbody tr').length + 1) * 10);
+  addFila($('#t_ops tbody'), [n, v[1], v[2]], { 1: 'list="maquinas"' });
+}
+function addCal(v = []) { addFila($('#t_cal tbody'), [v[0], v[1], v[2], v[3], v[4]]); }
+
+/* Bloques por tipo de operación */
+const campo = (id, etiqueta, ancho = '') =>
+  `<div class="c ${ancho}"><label>${etiqueta}</label><textarea class="f" rows="1" data-k="${id}"></textarea></div>`;
+const tablaHerr = `
+  <div class="sub">Herramientas y compensaciones</div>
+  <table class="t_herr">
+    <colgroup><col style="width:50px"><col><col style="width:16%"><col style="width:16%"><col class="no-print" style="width:26px"></colgroup>
+    <thead><tr><th>T</th><th>Herramienta</th><th>Comp. long. (H/D)</th><th>Comp. radio</th><th class="no-print"></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="barra no-print"><button onclick="addHerr(this.closest('.bloque'))">+ Herramienta</button></div>`;
+
+const TIPOS = {
+  torno: { titulo: 'Torno CNC', cuerpo: `
+    <div class="grid g3">
+      ${campo('op', 'Op. N°')}${campo('prog', 'Programa / código', 'w2')}
+      ${campo('origen', 'Origen de pieza (G54…)', 'w3')}
+    </div>${tablaHerr}` },
+  centro: { titulo: 'Centro de mecanizado', cuerpo: `
+    <div class="grid g3">
+      ${campo('op', 'Op. N°')}${campo('prog', 'Programa', 'w2')}
+      ${campo('fixture', 'Fixture / mordaza')}${campo('operacion', 'Operación')}${campo('wcs', 'Origen (WCS)')}
+    </div>${tablaHerr}` },
+  manual: { titulo: 'Manual: roscado / rebabado', cuerpo: `
+    <div class="grid g3">
+      ${campo('op', 'Op. N°')}${campo('rosca', 'Tipo de rosca y herramienta (macho/tarraja)', 'w2')}
+      ${campo('calibre', 'Calibre de verificación', 'w2')}${campo('rebabado', 'Criterio de rebabado')}
+    </div>` },
+  otro: { titulo: 'Otra operación', cuerpo: `
+    <div class="grid g2">
+      ${campo('op', 'Op. N°')}${campo('tipo', 'Tipo (taladrado, rectificado, tratamiento…)')}
+      ${campo('datos', 'Datos específicos', 'w2')}
+    </div>` },
+};
+
+function addBloque(tipo, datos = {}, herr = [], id = null) {
+  const t = TIPOS[tipo];
+  const w = crear(`<div class="bloque-wrap">
+    <div class="bloque" data-tipo="${tipo}">
+      <header><h3>${t.titulo}</h3><button class="del no-print" onclick="if(confirm('Se quita el bloque y sus adjuntos. ¿Seguir?')) this.closest('.bloque-wrap').remove()">Quitar bloque</button></header>
+      <div class="cuerpo">${t.cuerpo}</div></div>
+    <div class="adj-zona">
+      <div class="no-print barra">
+        <label>Plano (PDF o imagen): <input type="file" class="in_plano" accept=".pdf,image/*" multiple></label>
+        <label>Imagen para anotar (foto o captura): <input type="file" class="in_img" accept="image/*" multiple></label>
+        <label>Programa (TXT): <input type="file" class="in_prog" accept=".txt,text/plain" multiple></label>
+      </div>
+      <div class="no-print aviso-imp">Al imprimir, la primera imagen (plano o foto) sale debajo de los datos de este bloque, en la misma hoja. Las demás imágenes y los programas salen en hojas aparte.</div>
+      <div class="adjuntos">${SIN_ADJ}</div>
+    </div></div>`);
+  /* id estable del bloque: permite que los adjuntos guardados en la nube (colección aparte)
+     sepan a qué bloque pertenecen aunque se reordenen o se agreguen/quiten otros bloques */
+  w.dataset.id = id || generarId();
+  const b = $('.bloque', w);
+  $('#bloques').appendChild(w);
+  b.querySelectorAll('[data-k]').forEach(el => { if (datos[el.dataset.k] != null) el.value = datos[el.dataset.k]; autoGrow(el); });
+  herr.forEach(h => addHerr(b, h));
+  return b;
+}
+function addHerr(b, v = []) {
+  const tb = $('.t_herr tbody', b);
+  addFila(tb, [v[0] ?? 'T' + String(tb.children.length + 1).padStart(2, '0'), v[1], v[2], v[3]]);
+}
+
+/* Adjuntos (quedan en memoria, no se suben a ningún lado) */
+const SIN_ADJ = '<div class="vacio no-print">Sin adjuntos todavía.</div>';
+/* Zona de adjuntos (".adjuntos") que pertenece a un bloque */
+const zonaDe = (bloque) => $('.adjuntos', bloque.parentElement);
+
+function bloqueAdjunto(titulo, cuerpo, clase, zona) {
+  const d = crear(`<div class="adjunto ${clase}"><div class="sub" style="display:flex;justify-content:space-between;align-items:center">
+    <span>${esc(titulo)}</span><button class="del no-print" title="Quitar este adjunto">Quitar</button></div></div>`);
+  $('button', d).addEventListener('click', () => {
+    const src = $('[src]', d);
+    if (src && src.src.startsWith('blob:')) URL.revokeObjectURL(src.src);
+    d.remove();
+    if (!$('.adjunto', zona)) zona.innerHTML = SIN_ADJ;
+  });
+  d.appendChild(cuerpo);
+  return d;
+}
+function limpiarVacio(zona) { const v = $('.vacio', zona); if (v) v.remove(); }
+/* Las imágenes van siempre antes que los programas, para que la primera salga pegada al bloque al imprimir */
+function ponerImagen(zona, d) { zona.insertBefore(d, $('.adjunto.prog', zona)); }
+
+function agregarPlano(titulo, img, zona) {
+  const d = bloqueAdjunto(titulo, img, 'plano', zona);
+  const orientar = () => d.classList.toggle('apaisado', img.naturalWidth > img.naturalHeight);
+  if (img.complete && img.naturalWidth) orientar(); else img.addEventListener('load', orientar);
+  ponerImagen(zona, d);
+  return d;
+}
+
+/* Un PDF se convierte en una imagen por página, para que cada una salga en una hoja A4 completa */
+async function pdfAPlanos(f, zona) {
+  if (typeof pdfjsLib === 'undefined') {
+    alert('No se pudo leer el PDF: falta la carpeta "lib" junto a hoja_de_procesos.html. Adjuntá el plano como imagen (PNG o JPG) o volvé a copiar la carpeta completa.');
+    return;
+  }
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js?v=20261116';
+  const aviso = crear('<div class="vacio no-print">Leyendo ' + esc(f.name) + '…</div>');
+  zona.appendChild(aviso);
+  try {
+    const pdf = await pdfjsLib.getDocument({ data: await f.arrayBuffer() }).promise;
+    for (let n = 1; n <= pdf.numPages; n++) {
+      const page = await pdf.getPage(n);
+      const v1 = page.getViewport({ scale: 1 });
+      const viewport = page.getViewport({ scale: Math.min(4, 2400 / Math.max(v1.width, v1.height)) });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(viewport.width); canvas.height = Math.round(viewport.height);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      const img = new Image();
+      img.src = canvas.toDataURL('image/png');
+      img.alt = f.name;
+      agregarPlano(`Plano: ${f.name} (pág. ${n} de ${pdf.numPages})`, img, zona);
+    }
+  } catch (err) {
+    alert('No se pudo leer el PDF "' + f.name + '". Probá adjuntarlo como imagen (PNG o JPG).');
+  }
+  aviso.remove();
+}
+
+/* Los tres botones de adjuntos están en cada bloque: la zona es la del bloque donde se tocó */
+const zonaDeInput = (e) => $('.adjuntos', e.target.closest('.adj-zona'));
+
+document.addEventListener('change', e => {
+  if (!e.target.matches('.in_plano')) return;
+  const zona = zonaDeInput(e);
+  limpiarVacio(zona);
+  for (const f of e.target.files) {
+    if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) {
+      pdfAPlanos(f, zona);
+    } else {
+      const r = new FileReader();
+      r.onload = () => {
+        const img = new Image();
+        img.src = r.result; // data: para poder guardarla dentro de la hoja
+        img.alt = f.name;
+        agregarPlano('Plano: ' + f.name, img, zona);
+      };
+      r.readAsDataURL(f);
+    }
+  }
+  e.target.value = '';
+});
+
+/* Imagen anotada: foto o captura con flechas, círculos, números y textos; sale en una hoja A4 completa */
+const MAX_IMG = 2400;
+const COLOR_ANOT = '#d11a1a';
+
+function dibujarImagen(cv) {
+  const ctx = cv.getContext('2d');
+  ctx.drawImage(cv._img, 0, 0, cv.width, cv.height);
+  const lw = Math.max(4, cv.width / 300);
+  const formas = cv._tmp ? [...cv._formas, cv._tmp] : cv._formas;
+  ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.strokeStyle = COLOR_ANOT; ctx.fillStyle = COLOR_ANOT;
+  for (const f of formas) {
+    if (f.t === 'a') {
+      const ang = Math.atan2(f.y2 - f.y1, f.x2 - f.x1), h = lw * 5;
+      ctx.beginPath(); ctx.moveTo(f.x1, f.y1); ctx.lineTo(f.x2, f.y2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(f.x2, f.y2);
+      ctx.lineTo(f.x2 - h * Math.cos(ang - 0.45), f.y2 - h * Math.sin(ang - 0.45));
+      ctx.lineTo(f.x2 - h * Math.cos(ang + 0.45), f.y2 - h * Math.sin(ang + 0.45));
+      ctx.closePath(); ctx.fill();
+    } else if (f.t === 'c') {
+      ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2); ctx.stroke();
+    } else if (f.t === 'n') {
+      const r = lw * 4;
+      ctx.beginPath(); ctx.arc(f.x, f.y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = `bold ${r * 1.4}px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(f.n), f.x, f.y + r * 0.08);
+      ctx.fillStyle = COLOR_ANOT; ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+    } else if (f.t === 't') {
+      ctx.font = `bold ${lw * 6}px Arial`; ctx.textBaseline = 'middle';
+      const w = ctx.measureText(f.s).width, p = lw * 1.5, h = lw * 6;
+      ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillRect(f.x - p, f.y - h / 2 - p, w + p * 2, h + p * 2);
+      ctx.fillStyle = COLOR_ANOT; ctx.fillText(f.s, f.x, f.y);
+      ctx.textBaseline = 'alphabetic';
+    }
+  }
+}
+
+function agregarImagen(nombre, src, formas, tit, zona) {
+  const cuerpo = crear(`<div>
+    <input class="f tit-img" placeholder="Título de la hoja (ej.: Op. 20 – Sujeción cara 1)">
+    <div class="no-print barra herr-img">
+      <button data-t="a" class="act">Flecha</button><button data-t="c">Círculo</button>
+      <button data-t="n">Número</button><button data-t="t">Texto</button>
+      <button data-u>Deshacer</button><button data-b>Borrar anotaciones</button>
+    </div><canvas></canvas></div>`);
+  const cv = $('canvas', cuerpo);
+  $('.tit-img', cuerpo).value = tit;
+  cv._formas = formas; cv._src = src;
+  const d = bloqueAdjunto('Imagen anotada: ' + nombre, cuerpo, 'plano imagen', zona);
+  limpiarVacio(zona);
+  ponerImagen(zona, d);
+  const img = new Image();
+  img.onload = () => {
+    cv._img = img; cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+    d.classList.toggle('apaisado', cv.width > cv.height);
+    dibujarImagen(cv);
+  };
+  img.src = src;
+
+  let herr = 'a';
+  cuerpo.querySelectorAll('[data-t]').forEach(b => b.addEventListener('click', () => {
+    herr = b.dataset.t;
+    cuerpo.querySelectorAll('[data-t]').forEach(x => x.classList.toggle('act', x === b));
+  }));
+  $('[data-u]', cuerpo).addEventListener('click', () => { cv._formas.pop(); dibujarImagen(cv); });
+  $('[data-b]', cuerpo).addEventListener('click', () => {
+    if (cv._formas.length && confirm('¿Borrar todas las anotaciones de esta imagen?')) { cv._formas.length = 0; dibujarImagen(cv); }
+  });
+
+  const punto = (e) => {
+    const r = cv.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height };
+  };
+  let ini = null;
+  cv.addEventListener('pointerdown', e => {
+    if (!cv._img) return;
+    const p = punto(e);
+    if (herr === 'n') {
+      cv._formas.push({ t: 'n', x: p.x, y: p.y, n: cv._formas.filter(f => f.t === 'n').length + 1 });
+      sucio = true; dibujarImagen(cv);
+    } else if (herr === 't') {
+      const s = prompt('Texto de la anotación:');
+      if (s && s.trim()) { cv._formas.push({ t: 't', x: p.x, y: p.y, s: s.trim() }); sucio = true; dibujarImagen(cv); }
+    } else {
+      ini = p; cv.setPointerCapture(e.pointerId);
+    }
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!ini) return;
+    const p = punto(e);
+    cv._tmp = herr === 'a' ? { t: 'a', x1: ini.x, y1: ini.y, x2: p.x, y2: p.y }
+                           : { t: 'c', x: ini.x, y: ini.y, r: Math.hypot(p.x - ini.x, p.y - ini.y) };
+    dibujarImagen(cv);
+  });
+  const soltar = () => {
+    if (!ini) return;
+    const f = cv._tmp; ini = null; cv._tmp = null;
+    const largo = f ? (f.t === 'a' ? Math.hypot(f.x2 - f.x1, f.y2 - f.y1) : f.r) : 0;
+    if (largo > cv.width / 100) { cv._formas.push(f); sucio = true; }
+    dibujarImagen(cv);
+  };
+  cv.addEventListener('pointerup', soltar);
+  cv.addEventListener('pointercancel', soltar);
+  return d;
+}
+
+/* La imagen se reduce si es enorme, para que la hoja guardada no pese de más */
+function reducirImagen(f) {
+  return new Promise(res => {
+    const r = new FileReader();
+    r.onload = () => {
+      const im = new Image();
+      im.onload = () => {
+        const k = Math.min(1, MAX_IMG / Math.max(im.naturalWidth, im.naturalHeight));
+        if (k === 1 && f.type === 'image/png') return res(r.result);
+        const c = document.createElement('canvas');
+        c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k);
+        const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(im, 0, 0, c.width, c.height);
+        res(f.type === 'image/png' ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.9));
+      };
+      im.onerror = () => res(null);
+      im.src = r.result;
+    };
+    r.readAsDataURL(f);
+  });
+}
+
+document.addEventListener('change', async e => {
+  if (!e.target.matches('.in_img')) return;
+  const zona = zonaDeInput(e);
+  const archivos = [...e.target.files];
+  e.target.value = '';
+  for (const f of archivos) {
+    const src = await reducirImagen(f);
+    if (src) agregarImagen(f.name, src, [], '', zona); else alert('No se pudo leer la imagen "' + f.name + '".');
+  }
+});
+
+document.addEventListener('change', e => {
+  if (!e.target.matches('.in_prog')) return;
+  const zona = zonaDeInput(e);
+  limpiarVacio(zona);
+  for (const f of e.target.files) {
+    const r = new FileReader();
+    r.onload = () => agregarPrograma('Programa: ' + f.name, r.result, true, zona);
+    r.readAsText(f);
+  }
+  e.target.value = '';
+});
+
+function agregarPrograma(titulo, texto, imprimir, zona) {
+  const w = crear(`<div><label class="no-print"><input type="checkbox"> Incluir el programa en la impresión</label><pre></pre></div>`);
+  const pre = $('pre', w), chk = $('input', w);
+  pre.textContent = texto;
+  chk.checked = imprimir;
+  const d = bloqueAdjunto(titulo, w, 'prog', zona);
+  d.classList.toggle('noimp', !imprimir);
+  chk.addEventListener('change', () => d.classList.toggle('noimp', !chk.checked));
+  zona.appendChild(d);
+  return d;
+}
+
+/* Guardar y abrir hojas (archivo .json en la computadora) */
+let sucio = false;
+['input', 'change'].forEach(ev => document.addEventListener(ev, () => { sucio = true; }));
+document.addEventListener('click', e => { if (e.target.closest('button:not([data-sc])')) sucio = true; });
+window.addEventListener('beforeunload', e => { if (sucio) { e.preventDefault(); e.returnValue = ''; } });
+
+const CAMPOS = 'textarea[id], input[id]:not([type=file])';
+const valores = (r) => [...r.querySelectorAll('textarea,input')].map(x => x.value);
+
+function recolectar() {
+  const campos = {};
+  document.querySelectorAll(CAMPOS).forEach(el => { campos[el.id] = el.value; });
+  const filas = (sel) => [...document.querySelectorAll(sel + ' tbody tr')].map(valores);
+  return {
+    version: 1,
+    guardada: new Date().toISOString(),
+    campos,
+    ops: filas('#t_ops'), cal: filas('#t_cal'),
+    bloques: [...document.querySelectorAll('#bloques .bloque')].map(b => ({
+      tipo: b.dataset.tipo,
+      datos: Object.fromEntries([...b.querySelectorAll('[data-k]')].map(el => [el.dataset.k, el.value])),
+      herr: [...b.querySelectorAll('.t_herr tbody tr')].map(valores),
+      adjuntos: [...zonaDe(b).querySelectorAll('.adjunto')].map(d => d.classList.contains('imagen')
+        ? { tipo: 'imagen', titulo: $('.sub span', d).textContent.replace(/^Imagen anotada: /, ''), tit: $('.tit-img', d).value, src: $('canvas', d)._src, formas: $('canvas', d)._formas }
+        : d.classList.contains('plano')
+        ? { tipo: 'plano', titulo: $('.sub span', d).textContent, src: $('img', d).src }
+        : { tipo: 'prog', titulo: $('.sub span', d).textContent, texto: $('pre', d).textContent, imprimir: !d.classList.contains('noimp') }),
+    })),
+  };
+}
+
+function cargarAdjuntos(lista, zona) {
+  /* imágenes primero, programas después (orden estable) */
+  const orden = [...(lista || [])].sort((a, b) => (a.tipo === 'prog') - (b.tipo === 'prog'));
+  for (const a of orden) {
+    limpiarVacio(zona);
+    let d;
+    if (a.tipo === 'plano') {
+      const img = new Image();
+      img.src = a.src;
+      d = agregarPlano(a.titulo, img, zona);
+    } else if (a.tipo === 'imagen') {
+      d = agregarImagen(a.titulo, a.src, a.formas || [], a.tit || '', zona);
+    } else if (a.tipo === 'prog') {
+      d = agregarPrograma(a.titulo, a.texto, a.imprimir !== false, zona);
+    }
+    /* adjuntos traídos de la nube llevan sus ids de Firestore y un hash del contenido
+       guardado, para que guardarEnNube() sepa que no cambiaron y no los reescriba */
+    if (d && a._nube) { d.dataset.nubeIds = JSON.stringify(a._nube.ids); d.dataset.nubeHash = a._nube.hash; }
+  }
+}
+
+function cargarDatos(o) {
+  if (!o || o.version !== 1) { alert('Este archivo no es una hoja guardada con esta página.'); return false; }
+  document.querySelectorAll('#t_ops tbody, #t_cal tbody, #bloques').forEach(x => { x.innerHTML = ''; });
+  document.querySelectorAll(CAMPOS).forEach(el => { el.value = o.campos?.[el.id] ?? ''; autoGrow(el); });
+  (o.ops || []).forEach(v => addOp(v));
+  (o.cal || []).forEach(v => addCal(v));
+  const hechos = (o.bloques || []).filter(b => TIPOS[b.tipo]).map(b => {
+    const bl = addBloque(b.tipo, b.datos, b.herr, b.id);
+    cargarAdjuntos(b.adjuntos, zonaDe(bl));
+    return bl;
+  });
+  /* Hojas guardadas antes de este cambio: tenían los adjuntos al final, sin bloque. Pasan al primer bloque (o a uno nuevo «Otro») */
+  if ((o.adjuntos || []).length) {
+    const destino = hechos[0] || addBloque('otro');
+    cargarAdjuntos(o.adjuntos, zonaDe(destino));
+    setTimeout(() => alert('Esta hoja se guardó con los adjuntos al final. Ahora están en ' + (hechos[0] ? 'el primer bloque' : 'un bloque «Otra operación» nuevo') + '. Si van en otro bloque, quitalos y volvé a cargarlos donde corresponda.'), 0);
+  }
+  actualizarResumen();
+  sucio = false;
+  return true;
+}
+
+async function guardarHoja() {
+  const limpio = (s) => (s || '').trim().replace(/[^\w.-]+/g, '_');
+  const partes = [limpio($('#plano_n').value)].filter(Boolean);
+  const nombre = 'hoja_' + (partes.join('_') || 'sin_nombre') + '.json';
+  const texto = JSON.stringify(recolectar());
+  if (window.showSaveFilePicker) {
+    try {
+      const h = await showSaveFilePicker({ suggestedName: nombre, types: [{ description: 'Hoja de procesos', accept: { 'application/json': ['.json'] } }] });
+      const w = await h.createWritable();
+      await w.write(texto);
+      await w.close();
+      sucio = false;
+      alert('Hoja guardada: ' + h.name);
+      return;
+    } catch (err) {
+      if (err && err.name === 'AbortError') return; // canceló
+    }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([texto], { type: 'application/json' }));
+  a.download = nombre;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  sucio = false;
+  alert('Hoja descargada como ' + nombre + ' (carpeta Descargas, salvo que tu navegador pregunte dónde).');
+}
+
+$('#in_abrir').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  if (sucio && !confirm('Se reemplaza lo que está cargado. ¿Seguir?')) return;
+  try { cargarDatos(JSON.parse(await f.text())); }
+  catch (err) { alert('No se pudo abrir "' + f.name + '". ¿Es una hoja guardada con esta página?'); }
+});
+
+/* Antes de imprimir: un programa que no entra en una hoja pasa a 2 columnas; si no alcanzan, sigue en la hoja siguiente */
+function ajustarProgramas() {
+  const LIMITE_PX = 1000; // alto útil de una hoja A4 con márgenes, menos el título
+  document.querySelectorAll('.adjunto.prog pre').forEach(pre => {
+    const m = document.createElement('pre');
+    m.className = 'medida';
+    m.textContent = pre.textContent;
+    document.body.appendChild(m);
+    const alto = m.getBoundingClientRect().height;
+    m.remove();
+    pre.classList.toggle('dos-col', alto > LIMITE_PX);
+  });
+}
+
+/* Ejemplo ilustrativo (pieza ficticia; valores sólo para mostrar el uso) */
+function set(id, v) { const el = document.getElementById(id); el.value = v; autoGrow(el); }
+function cargarEjemplo() {
+  if (!confirm('Esto reemplaza lo cargado por un ejemplo ficticio. ¿Seguir?')) return;
+  document.querySelectorAll('#t_ops tbody, #t_cal tbody, #bloques').forEach(x => x.innerHTML = '');
+  set('cliente', 'Cliente de ejemplo'); set('plano_n', 'EJ-001'); set('rev', 'A');
+  set('desc', 'Eje roscado con cara plana fresada (ficticio)');
+  set('mat', 'Acero al carbono (ejemplo)'); set('mat_dim', 'Barra Ø30 x 85 mm'); set('mat_lote', 'Lote de ejemplo');
+  [
+    ['10', 'Sierra cinta', 'Cortar barra a largo'],
+    ['20', 'Torno CNC', 'Cilindrar, perfilar y hacer rosca exterior'],
+    ['30', 'Centro de mecanizado', 'Fresar cara plana'],
+    ['40', 'Banco (manual)', 'Repasar rosca con tarraja'],
+    ['50', 'Banco (manual)', 'Quitar rebabas'],
+    ['60', 'Inspección', 'Inspección final'],
+  ].forEach(addOp);
+  addBloque('torno', { op: '20', prog: 'O1001 (ejemplo)', origen: 'G54: cara frontal, eje de giro' },
+    [['T01', 'Inserto de desbaste (ejemplo)', 'H01', 'D01'], ['T02', 'Inserto de acabado (ejemplo)', 'H02', 'D02'], ['T03', 'Inserto de roscar (ejemplo)', 'H03', '']]);
+  addBloque('centro', { op: '30', prog: 'O2001 (ejemplo)', fixture: 'Mordaza con tope', operacion: 'Fresado de cara plana', wcs: 'G54: cara frontal, centro' },
+    [['T01', 'Fresa frontal (ejemplo)', 'H01', 'D01']]);
+  addBloque('manual', { op: '40 / 50', rosca: 'Tarraja (ejemplo: M16x1,5)', calibre: 'Anillo pasa / no pasa de la rosca', rebabado: 'Sin filos vivos en aristas ni en el comienzo de la rosca' });
+  [
+    ['Ø rosca exterior', 'M16x1,5', 'Clase según plano', 'Calibre de anillo pasa / no pasa', 'Primera pieza y cada 5'],
+    ['Largo total', '80 mm', '± según plano', 'Calibre pie de rey', 'Cada 5 piezas'],
+    ['Profundidad cara plana', '5 mm', '± según plano', 'Calibre de profundidad', 'Primera pieza y cada 5'],
+  ].forEach(addCal);
+}
+
+/* ───────────────────────── Guardado en la nube (Firestore) ─────────────────────────
+   Mismo proyecto Firebase que Gestión Producción, pero en SU PROPIA colección:
+   usuarios/{UID}/hojas/{hojaId}            → ficha (campos + tablas + bloques, SIN imágenes/TXT)
+   usuarios/{UID}/hojas/{hojaId}/adjuntos/* → un documento por plano/imagen/TXT
+   No toca el documento usuarios/{UID} que usa Gestión Producción. */
+const firebaseConfig = {
+  apiKey: "AIzaSyAyuaDQVLwSuKsb7XnJKsP9KHtBwJsjITM",
+  authDomain: "produccion-alemi.firebaseapp.com",
+  projectId: "produccion-alemi",
+  storageBucket: "produccion-alemi.firebasestorage.app",
+  messagingSenderId: "1065231252050",
+  appId: "1:1065231252050:web:3bfcafda3b43444b9f3d8b"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+let _userId = null;
+let _hojaId = null;              // null = hoja todavía no guardada en la nube
+let _actualizadaCargada = null;  // Timestamp de "actualizada" tal como estaba al abrir/guardar — para detectar choques
+let _adjuntosNube = {};          // ids de documentos de la colección "adjuntos" que están vivos en la última versión guardada
+let _otNums = [];                // se preserva aunque esta pantalla no lo edite (lo completa la vinculación con OTs, a futuro)
+
+function generarId() {
+  return (self.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+}
+
+function setEstadoNube(estado, msg) {
+  const el = $('#estado-nube');
+  if (!el) return;
+  if (estado === 'guardando') { el.textContent = 'Guardando…'; el.style.color = '#555'; }
+  else if (estado === 'guardado') {
+    el.textContent = 'Guardado ✓'; el.style.color = '#1a7a4a';
+    setTimeout(() => { if (el.textContent === 'Guardado ✓') el.textContent = ''; }, 4000);
+  } else if (estado === 'error') { el.textContent = 'Error al guardar en la nube: ' + (msg || 'revisá tu conexión.'); el.style.color = '#c0392b'; }
+  else { el.textContent = ''; }
+}
+
+/* id del bloque (estable entre guardados) — usado por los adjuntos de la nube para saber a qué bloque pertenecen */
+function idDeBloque(b) {
+  const w = b.parentElement;
+  if (!w.dataset.id) w.dataset.id = generarId();
+  return w.dataset.id;
+}
+
+/* Contenido de la hoja SIN imágenes ni TXT — esto es lo que va en la ficha */
+function datosParaFicha() {
+  const campos = {};
+  document.querySelectorAll(CAMPOS).forEach(el => { campos[el.id] = el.value; });
+  const filas = (sel) => [...document.querySelectorAll(sel + ' tbody tr')].map(valores);
+  return {
+    version: 1,
+    campos,
+    ops: filas('#t_ops'), cal: filas('#t_cal'),
+    bloques: [...document.querySelectorAll('#bloques .bloque')].map(b => ({
+      id: idDeBloque(b),
+      tipo: b.dataset.tipo,
+      datos: Object.fromEntries([...b.querySelectorAll('[data-k]')].map(el => [el.dataset.k, el.value])),
+      herr: [...b.querySelectorAll('.t_herr tbody tr')].map(valores),
+    })),
+  };
+}
+
+/* Adjuntos leídos del DOM tal cual están ahora, con una referencia al elemento para poder
+   comparar contra lo que ya está en la nube y, si corresponde, sincronizar la recompresión */
+function recolectarAdjuntosDom() {
+  const lista = [];
+  document.querySelectorAll('#bloques .bloque').forEach(b => {
+    const bloqueId = idDeBloque(b);
+    const zona = zonaDe(b);
+    [...zona.querySelectorAll('.adjunto')].forEach((d, i) => {
+      if (d.classList.contains('imagen')) {
+        lista.push({ dom: d, bloqueId, orden: i, tipo: 'imagen',
+          titulo: $('.sub span', d).textContent.replace(/^Imagen anotada: /, ''),
+          tit: $('.tit-img', d).value, dataUrl: $('canvas', d)._src, formas: $('canvas', d)._formas });
+      } else if (d.classList.contains('plano')) {
+        lista.push({ dom: d, bloqueId, orden: i, tipo: 'plano',
+          titulo: $('.sub span', d).textContent, dataUrl: $('img', d).src });
+      } else {
+        lista.push({ dom: d, bloqueId, orden: i, tipo: 'txt',
+          titulo: $('.sub span', d).textContent, texto: $('pre', d).textContent,
+          imprimir: !d.classList.contains('noimp') });
+      }
+    });
+  });
+  return lista;
+}
+
+/* Hash de contenido — permite detectar si un adjunto cambió desde el último guardado en la nube,
+   para no reescribir (ni recomprimir de nuevo) lo que no se tocó */
+function hashContenido(a) {
+  const s = a.tipo === 'txt' ? JSON.stringify([a.titulo, a.texto, a.imprimir])
+          : a.tipo === 'imagen' ? JSON.stringify([a.titulo, a.tit, a.dataUrl, a.formas])
+          : JSON.stringify([a.titulo, a.dataUrl]);
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h.toString(36) + ':' + s.length;
+}
+
+/* Si la imagen (plano o foto) pesa más de ~800 KB, se recomprime: JPG, lado máx. 1600 px, calidad 0.7 */
+const LIMITE_IMG_BYTES = 800 * 1024;
+function recomprimirSiHaceFalta(dataUrl) {
+  const bytesAprox = Math.ceil(dataUrl.length * 3 / 4);
+  if (bytesAprox <= LIMITE_IMG_BYTES) return Promise.resolve(dataUrl);
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * k);
+      c.height = Math.round(img.naturalHeight * k);
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL('image/jpeg', 0.7));
+    };
+    img.onerror = () => resolve(dataUrl); // si falla la recompresión, se sube igual el original
+    img.src = dataUrl;
+  });
+}
+
+/* TXT muy largo (> ~700.000 caracteres): se parte en varios documentos de "adjuntos" con el
+   mismo "grupo" y un número de "parte", para no superar el límite de 1 MB por documento */
+const LIMITE_TXT = 700000;
+function partirTexto(a) {
+  if (a.texto.length <= LIMITE_TXT) return [a];
+  const partes = [];
+  const grupo = generarId();
+  for (let i = 0; i < a.texto.length; i += LIMITE_TXT) partes.push({ ...a, texto: a.texto.slice(i, i + LIMITE_TXT), grupo });
+  partes.forEach((p, i) => { p.parte = i + 1; p.partes = partes.length; });
+  return partes;
+}
+
+async function guardarEnNube() {
+  if (!_userId) { alert('Iniciá sesión en Gestión Producción primero.'); return; }
+  const codigo = $('#plano_n').value.trim();
+  if (!codigo) { alert('Ingresá el código de plano (N° pieza / plano) antes de guardar en la nube.'); $('#plano_n').focus(); return; }
+  setEstadoNube('guardando');
+  try {
+    const esNueva = !_hojaId;
+    const hojasRef = db.collection('usuarios').doc(_userId).collection('hojas');
+    const ref = esNueva ? hojasRef.doc() : hojasRef.doc(_hojaId);
+
+    if (!esNueva) {
+      const actual = await ref.get();
+      if (actual.exists) {
+        const tsActual = actual.data().actualizada;
+        if (_actualizadaCargada && tsActual && !tsActual.isEqual(_actualizadaCargada)) {
+          const recargar = confirm(
+            'Esta hoja se modificó en otro lugar desde que la abriste.\n\n' +
+            'Aceptar = recargar la versión más nueva (se pierden los cambios de esta pantalla).\n' +
+            'Cancelar = sobrescribir la nube con lo que tenés acá.'
+          );
+          if (recargar) { setEstadoNube('idle'); await cargarDeNube(_hojaId); return; }
+          // Cancelar => sigue y sobrescribe a propósito.
+        }
+      }
+    }
+
+    const candidatos = recolectarAdjuntosDom();
+    const aEscribir = [];
+    const idsVivos = new Set();
+    for (const a of candidatos) {
+      const sinCambios = a.dom.dataset.nubeHash && a.dom.dataset.nubeIds && hashContenido(a) === a.dom.dataset.nubeHash;
+      if (sinCambios) {
+        JSON.parse(a.dom.dataset.nubeIds).forEach(id => idsVivos.add(id));
+        continue;
+      }
+      if (a.tipo !== 'txt' && a.dataUrl) {
+        a.dataUrl = await recomprimirSiHaceFalta(a.dataUrl);
+        // se sincroniza de vuelta al DOM: así el próximo guardado no la vuelve a ver "distinta"
+        if (a.tipo === 'imagen') a.dom.querySelector('canvas')._src = a.dataUrl;
+        else a.dom.querySelector('img').src = a.dataUrl;
+      }
+      aEscribir.push(a);
+    }
+
+    const batch = db.batch();
+    const adjCol = ref.collection('adjuntos');
+    for (const a of aEscribir) {
+      const partes = a.tipo === 'txt' ? partirTexto(a) : [a];
+      const idsNuevos = [];
+      for (const p of partes) {
+        const id = adjCol.doc().id;
+        idsNuevos.push(id);
+        idsVivos.add(id);
+        const payload = { tipo: p.tipo, bloqueId: p.bloqueId, orden: p.orden, titulo: p.titulo };
+        if (p.tipo === 'plano') payload.dataUrl = p.dataUrl;
+        if (p.tipo === 'imagen') { payload.dataUrl = p.dataUrl; payload.tit = p.tit; payload.formas = p.formas; }
+        if (p.tipo === 'txt') {
+          payload.texto = p.texto; payload.imprimir = p.imprimir;
+          if (p.grupo) { payload.grupo = p.grupo; payload.parte = p.parte; payload.partes = p.partes; }
+        }
+        batch.set(adjCol.doc(id), payload);
+      }
+      a.dom.dataset.nubeIds = JSON.stringify(idsNuevos);
+      a.dom.dataset.nubeHash = hashContenido(a);
+    }
+    // lo que ya no está entre los adjuntos vivos, se borra de la nube
+    for (const idViejo of Object.keys(_adjuntosNube)) {
+      if (!idsVivos.has(idViejo)) batch.delete(adjCol.doc(idViejo));
+    }
+
+    const datos = datosParaFicha();
+    const fichaPayload = {
+      codigo,
+      nombre: datos.campos.desc || '',
+      cliente: datos.campos.cliente || '',
+      resumen: resumenTexto(),
+      datos,
+      otNums: _otNums || [],
+      actualizada: firebase.firestore.FieldValue.serverTimestamp(),
+      nAdjuntos: idsVivos.size,
+    };
+    if (esNueva) fichaPayload.creada = firebase.firestore.FieldValue.serverTimestamp();
+    batch.set(ref, fichaPayload, { merge: true });
+
+    await batch.commit();
+
+    _hojaId = ref.id;
+    _adjuntosNube = Object.fromEntries([...idsVivos].map(id => [id, true]));
+    const fresh = await ref.get();
+    _actualizadaCargada = fresh.data().actualizada;
+    const url = new URL(location.href);
+    url.searchParams.set('id', _hojaId);
+    history.replaceState(null, '', url);
+    sucio = false;
+    setEstadoNube('guardado');
+  } catch (err) {
+    console.error('Error guardando hoja en la nube:', err);
+    setEstadoNube('error', err.message || String(err));
+    // no se toca lo que está en pantalla: nada se pierde ante un error de guardado
+  }
+}
+
+async function cargarDeNube(id) {
+  try {
+    const ref = db.collection('usuarios').doc(_userId).collection('hojas').doc(id);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      alert('No se encontró la hoja "' + id + '" en la nube.');
+      const url = new URL(location.href); url.searchParams.delete('id'); history.replaceState(null, '', url);
+      return;
+    }
+    const data = snap.data();
+    const adjSnap = await ref.collection('adjuntos').get();
+    const porBloque = {};
+    const grupos = {};
+    adjSnap.forEach(docu => {
+      const a = { id: docu.id, ...docu.data() };
+      if (a.tipo === 'txt' && a.grupo) { (grupos[a.grupo] = grupos[a.grupo] || []).push(a); }
+      else { (porBloque[a.bloqueId] = porBloque[a.bloqueId] || []).push({ ...a, _ids: [a.id] }); }
+    });
+    Object.values(grupos).forEach(partes => {
+      partes.sort((x, y) => x.parte - y.parte);
+      const base = partes[0];
+      (porBloque[base.bloqueId] = porBloque[base.bloqueId] || []).push({
+        ...base, texto: partes.map(p => p.texto).join(''), _ids: partes.map(p => p.id),
+      });
+    });
+    Object.values(porBloque).forEach(lista => lista.sort((a, b) => a.orden - b.orden));
+
+    const obj = {
+      version: 1,
+      campos: data.datos?.campos || {},
+      ops: data.datos?.ops || [],
+      cal: data.datos?.cal || [],
+      bloques: (data.datos?.bloques || []).map(b => ({
+        id: b.id, tipo: b.tipo, datos: b.datos, herr: b.herr,
+        adjuntos: (porBloque[b.id] || []).map(a => {
+          const limpio = { tipo: a.tipo, titulo: a.titulo, tit: a.tit, dataUrl: a.dataUrl, texto: a.texto, imprimir: a.imprimir, formas: a.formas };
+          return {
+            tipo: a.tipo === 'txt' ? 'prog' : a.tipo,
+            titulo: a.titulo, tit: a.tit, src: a.dataUrl, texto: a.texto, imprimir: a.imprimir, formas: a.formas,
+            _nube: { ids: a._ids, hash: hashContenido(limpio) },
+          };
+        }),
+      })),
+    };
+    if (sucio && !confirm('Se reemplaza lo que está cargado en pantalla. ¿Seguir?')) return;
+    cargarDatos(obj);
+    _hojaId = id;
+    _actualizadaCargada = data.actualizada || null;
+    _otNums = data.otNums || [];
+    _adjuntosNube = {};
+    adjSnap.forEach(docu => { _adjuntosNube[docu.id] = true; });
+    const url = new URL(location.href); url.searchParams.set('id', id); history.replaceState(null, '', url);
+    sucio = false;
+  } catch (err) {
+    console.error('Error cargando hoja desde la nube:', err);
+    alert('No se pudo cargar la hoja desde la nube: ' + (err.message || err));
+  }
+}
+
+auth.onAuthStateChanged(user => {
+  const banner = $('#banner-sesion');
+  const botonesNube = document.querySelectorAll('.req-sesion');
+  if (user) {
+    _userId = user.uid;
+    if (banner) banner.style.display = 'none';
+    botonesNube.forEach(b => b.disabled = false);
+    const id = new URLSearchParams(location.search).get('id');
+    if (id && id !== _hojaId) cargarDeNube(id);
+  } else {
+    _userId = null;
+    if (banner) banner.style.display = 'block';
+    botonesNube.forEach(b => b.disabled = true);
+  }
+});
+
+/* Estado inicial: una fila de cada tabla para empezar */
+addOp(); addCal(); actualizarResumen();
+</script>
+</body>
+</html>
