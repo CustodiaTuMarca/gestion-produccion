@@ -4,9 +4,22 @@
    de gestion_produccion.js pero una colección totalmente aparte. */
 
 let _hojasCache = [];
+let _hojasCacheEstado = 'idle'; // 'idle' | 'cargando' | 'ok' | 'error'
+let _hojasCacheError = '';
+let _hojasCacheTs = 0;
+const HOJAS_CACHE_TTL_MS = 60000;
 
 function _escHoja(s) {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+/* minúsculas y sin acentos, para que el buscador no distinga mayúsculas ni tildes */
+/* Rango Unicode de marcas diacríticas combinantes (0x0300-0x036F), construido por código
+   de carácter para no depender de tipear acentos "sueltos" literales en el archivo fuente */
+const _RE_DIACRITICOS = new RegExp('[' + String.fromCharCode(0x0300) + '-' + String.fromCharCode(0x036f) + ']', 'g');
+function _normalizarTexto(s) {
+  const sinAcentos = String(s ?? '').toLowerCase().normalize('NFD').replace(_RE_DIACRITICOS, '');
+  return sinAcentos.trim();
 }
 
 function _hojaTsMillis(ts) {
@@ -26,33 +39,48 @@ function _fmtFechaHoja(ts) {
 
 async function renderHojas() {
   const tbody = document.getElementById('hojas-tabla-body');
-  if (!tbody) return; // la solapa todavía no se mostró / no existe en este momento
   if (!_userId) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:20px">Iniciá sesión para ver las hojas de proceso.</td></tr>';
+    _hojasCacheEstado = 'idle';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:20px">Iniciá sesión para ver las hojas de proceso.</td></tr>';
     return;
   }
-  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:20px">Cargando…</td></tr>';
+  _hojasCacheEstado = 'cargando';
+  if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:20px">Cargando…</td></tr>';
   try {
     const snap = await db.collection('usuarios').doc(_userId).collection('hojas').get();
     _hojasCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    _hojasCacheEstado = 'ok';
+    _hojasCacheTs = Date.now();
+    _hojasCacheError = '';
     renderHojasTabla();
   } catch (err) {
     console.error('Error leyendo hojas de proceso:', err);
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#c0392b;padding:20px">
-      No se pudieron cargar las hojas de proceso: ${_escHoja(err.message || err)}
+    _hojasCacheEstado = 'error';
+    _hojasCacheError = err.message || String(err);
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#c0392b;padding:20px">
+      No se pudieron cargar las hojas de proceso: ${_escHoja(_hojasCacheError)}
     </td></tr>`;
   }
+}
+
+/* Reusa la caché si está fresca (< 60s) y sin errores; si no, vuelve a leer Firestore.
+   Se llama al abrir el modal de OT para no mostrar "No hay hojas" cuando en realidad
+   todavía no se leyó nada (o la última lectura falló) */
+async function _asegurarHojasCache() {
+  const fresca = _hojasCacheEstado === 'ok' && (Date.now() - _hojasCacheTs) < HOJAS_CACHE_TTL_MS;
+  if (fresca) return;
+  await renderHojas();
 }
 
 /* Filtra/ordena/pinta lo que ya está en _hojasCache, sin volver a leer Firestore */
 function renderHojasTabla() {
   const tbody = document.getElementById('hojas-tabla-body');
   if (!tbody) return;
-  const filterText = (document.getElementById('hojas-filter-text')?.value || '').trim().toLowerCase();
+  const filterText = _normalizarTexto(document.getElementById('hojas-filter-text')?.value || '');
 
   let lista = _hojasCache;
   if (filterText) {
-    lista = lista.filter(h => `${h.codigo || ''} ${h.nombre || ''} ${h.cliente || ''}`.toLowerCase().includes(filterText));
+    lista = lista.filter(h => _normalizarTexto(`${h.codigo || ''} ${h.nombre || ''} ${h.cliente || ''}`).includes(filterText));
   }
   lista = [...lista].sort((a, b) => _hojaTsMillis(b.actualizada) - _hojaTsMillis(a.actualizada));
 
@@ -134,32 +162,81 @@ document.addEventListener('visibilitychange', () => {
    Todo esto "engancha" el modal de OT desde afuera (monkey-patch de las funciones
    globales openOT/saveOT/loadOTFields/clearOTFields/readOTFields que ya existen en
    gestion_produccion.js) para no tener que tocar ese archivo salvo lo mínimo
-   (un solo hook en printOT, ver gestion_produccion.js). hProc ("H. PROC." / SI-NO)
-   es un campo viejo de la OT sin relación con esto — no se toca. */
+   (un hook en printOT y un onchange en el <select id="ot-hproc">, ver
+   gestion_produccion.js / gestion_produccion_v2.html).
 
-let _otHojaCodigoActual = '';     // código de la hoja vinculada, aunque la hoja ya no exista
+   El bloque usa el campo YA EXISTENTE "H. PROC." (ot.hProc, el desplegable SI/NO/—
+   que se imprime en la fila PIEZA/PLANO·DESCRIPCIÓN·H.PROC.·UNID·OPs) como única
+   pregunta — no hay un Sí/No nuevo. Se muestra cuando hProc==='SI' O la OT ya tenía
+   una hoja vinculada (hojaId), para no ocultar un vínculo viejo solo porque hProc
+   haya quedado en blanco. */
+
+let _otHojaCodigoActual = '';       // código de la hoja vinculada, aunque la hoja ya no exista
 let _otHojaSeleccionPendiente = ''; // hojaId a preseleccionar la próxima vez que se pinten las opciones
+let _otTieneHojaIdActual = false;   // la OT que está abierta ya tenía hojaId al cargarla
 
-function onCambioHojaProcOT() {
-  const si = document.getElementById('ot-hoja-si')?.checked;
-  const wrap = document.getElementById('ot-hoja-selector-wrap');
-  if (wrap) wrap.style.display = si ? 'block' : 'none';
-  if (si) {
-    const sug = document.getElementById('ot-hoja-sugerencia');
-    if (sug) sug.style.display = 'none';
-  } else {
-    _mostrarSugerenciaHojaOT();
-  }
+/* Muestra/oculta el contenido (buscador+selector+acciones) según H. PROC. o si ya
+   había una hoja vinculada; NO limpia nada (se usa también al cargar datos) */
+function _actualizarVisibilidadHojaWrap() {
+  const hprocEl = document.getElementById('ot-hproc');
+  const esSi = hprocEl && hprocEl.value === 'SI';
+  const mostrarContenido = !!(esSi || _otTieneHojaIdActual);
+  const contenidoEl = document.getElementById('ot-hoja-contenido');
+  if (contenidoEl) contenidoEl.style.display = mostrarContenido ? 'block' : 'none';
+  _actualizarVisibilidadWrapExterno();
+  return mostrarContenido;
 }
 
-/* Pinta el <select> de hojas según el texto de búsqueda, preservando la selección
-   actual (o la pendiente de aplicar) aunque no coincida con el filtro escrito */
+function _actualizarVisibilidadWrapExterno() {
+  const wrap = document.getElementById('ot-hoja-wrap');
+  if (!wrap) return;
+  const contenidoVisible = document.getElementById('ot-hoja-contenido')?.style.display === 'block';
+  const sugerenciaVisible = document.getElementById('ot-hoja-sugerencia')?.style.display === 'block';
+  wrap.style.display = (contenidoVisible || sugerenciaVisible) ? 'block' : 'none';
+}
+
+/* onchange del <select id="ot-hproc"> — pasar a NO/— desvincula la hoja de ESTA
+   edición (se limpia el selector; el arrayRemove real pasa recién al guardar) */
+function onCambioHojaProcOT() {
+  const hprocEl = document.getElementById('ot-hproc');
+  if (hprocEl && hprocEl.value !== 'SI') {
+    const selEl = document.getElementById('ot-hoja-sel');
+    if (selEl) selEl.value = '';
+    _otTieneHojaIdActual = false;
+    _otHojaCodigoActual = '';
+  }
+  const mostrar = _actualizarVisibilidadHojaWrap();
+  if (mostrar) renderOTHojaOpciones();
+  _mostrarSugerenciaHojaOT();
+}
+
+/* Pinta el <select> de hojas según el texto de búsqueda (acentos/mayúsculas no importan),
+   preservando la selección actual (o la pendiente de aplicar) aunque no coincida con el
+   filtro escrito. Distingue "cargando"/"error" de "sin hojas" y de "sin resultados" del
+   filtro, para no decir "no hay hojas" cuando en realidad todavía no se leyó nada. */
 function renderOTHojaOpciones() {
   const selEl = document.getElementById('ot-hoja-sel');
   const sinHojasEl = document.getElementById('ot-hoja-sin-hojas');
   const noExisteEl = document.getElementById('ot-hoja-noexiste');
+  const cargandoEl = document.getElementById('ot-hoja-cargando');
+  const errorEl = document.getElementById('ot-hoja-error');
   if (!selEl) return;
-  const filtro = (document.getElementById('ot-hoja-buscar')?.value || '').trim().toLowerCase();
+  [sinHojasEl, noExisteEl, cargandoEl, errorEl].forEach(el => { if (el) el.style.display = 'none'; });
+
+  if (_hojasCacheEstado === 'cargando') {
+    selEl.style.display = 'none';
+    if (cargandoEl) cargandoEl.style.display = 'block';
+    _actualizarAccionesHojaOT();
+    return;
+  }
+  if (_hojasCacheEstado === 'error') {
+    selEl.style.display = 'none';
+    if (errorEl) { errorEl.style.display = 'block'; errorEl.textContent = '⚠ No se pudieron cargar las hojas: ' + _hojasCacheError; }
+    _actualizarAccionesHojaOT();
+    return;
+  }
+
+  const filtro = _normalizarTexto(document.getElementById('ot-hoja-buscar')?.value || '');
   const actual = _otHojaSeleccionPendiente || selEl.value || '';
 
   if (!_hojasCache.length) {
@@ -171,19 +248,22 @@ function renderOTHojaOpciones() {
     _otHojaSeleccionPendiente = '';
     return;
   }
-  selEl.style.display = 'block';
-  if (sinHojasEl) sinHojasEl.style.display = 'none';
 
-  let lista = _hojasCache.filter(h => `${h.codigo || ''} ${h.nombre || ''}`.toLowerCase().includes(filtro));
+  selEl.style.display = 'block';
+  let lista = _hojasCache.filter(h => _normalizarTexto(`${h.codigo || ''} ${h.nombre || ''} ${h.cliente || ''}`).includes(filtro));
   const existeActual = _hojasCache.some(h => h.id === actual);
   if (actual && existeActual && !lista.some(h => h.id === actual)) {
     lista = [_hojasCache.find(h => h.id === actual), ...lista];
   }
 
-  const opciones = ['<option value="">— Elegir hoja —</option>'].concat(
-    lista.map(h => `<option value="${h.id}" ${h.id === actual ? 'selected' : ''}>${_escHoja(h.codigo || '?')} — ${_escHoja(h.nombre || 'sin nombre')}</option>`)
-  );
-  selEl.innerHTML = opciones.join('');
+  if (!lista.length) {
+    selEl.innerHTML = '<option value="">Sin resultados</option>';
+  } else {
+    const opciones = ['<option value="">— Elegir hoja —</option>'].concat(
+      lista.map(h => `<option value="${h.id}" ${h.id === actual ? 'selected' : ''}>${_escHoja(h.codigo || '?')} — ${_escHoja(h.nombre || 'sin nombre')}</option>`)
+    );
+    selEl.innerHTML = opciones.join('');
+  }
   if (noExisteEl) noExisteEl.style.display = (actual && !existeActual) ? 'block' : 'none';
   _actualizarAccionesHojaOT();
   _otHojaSeleccionPendiente = '';
@@ -199,7 +279,7 @@ function _actualizarAccionesHojaOT() {
 function onSeleccionarHojaOT() {
   _actualizarAccionesHojaOT();
   const sug = document.getElementById('ot-hoja-sugerencia');
-  if (sug) sug.style.display = 'none';
+  if (sug) { sug.style.display = 'none'; _actualizarVisibilidadWrapExterno(); }
 }
 
 function verHojaOT() {
@@ -210,38 +290,46 @@ function verHojaOT() {
 }
 
 /* Si el código/pieza de la OT coincide exacto con el código de UNA sola hoja y todavía
-   no hay ninguna elegida, lo sugiere — pero no la selecciona sola */
+   no hay ninguna elegida, lo sugiere (visible aunque H.PROC. no esté en SI todavía) —
+   pero no la selecciona sola */
 function _mostrarSugerenciaHojaOT() {
   const el = document.getElementById('ot-hoja-sugerencia');
   if (!el) return;
+  const ocultar = () => { el.style.display = 'none'; _actualizarVisibilidadWrapExterno(); };
   const selEl = document.getElementById('ot-hoja-sel');
-  if (selEl && selEl.value) { el.style.display = 'none'; return; }
-  const pieza = (document.getElementById('ot-pieza')?.value || '').trim().toLowerCase();
-  if (!pieza) { el.style.display = 'none'; return; }
-  const coincidencias = _hojasCache.filter(h => (h.codigo || '').trim().toLowerCase() === pieza);
-  if (coincidencias.length !== 1) { el.style.display = 'none'; return; }
+  if (selEl && selEl.value) return ocultar();
+  if (_hojasCacheEstado !== 'ok') return ocultar();
+  const pieza = _normalizarTexto(document.getElementById('ot-pieza')?.value || '');
+  if (!pieza) return ocultar();
+  const coincidencias = _hojasCache.filter(h => _normalizarTexto(h.codigo || '') === pieza);
+  if (coincidencias.length !== 1) return ocultar();
   const h = coincidencias[0];
   el.innerHTML = `Sugerida: <b>${_escHoja(h.codigo)} — ${_escHoja(h.nombre || 'sin nombre')}</b> · <a href="#" onclick="usarHojaSugeridaOT('${h.id}');return false">¿usar?</a>`;
   el.style.display = 'block';
+  _actualizarVisibilidadWrapExterno();
 }
 
 function usarHojaSugeridaOT(hojaId) {
-  const siEl = document.getElementById('ot-hoja-si');
-  if (siEl) siEl.checked = true;
-  onCambioHojaProcOT();
+  const hprocEl = document.getElementById('ot-hproc');
+  if (hprocEl) hprocEl.value = 'SI';
   _otHojaSeleccionPendiente = hojaId;
+  _actualizarVisibilidadHojaWrap();
   renderOTHojaOpciones();
   onSeleccionarHojaOT();
 }
 
-/* Refresca la caché de hojas y repinta el selector — se llama cada vez que se abre el modal de OT */
+/* Asegura una caché fresca de hojas y repinta el selector — se llama cada vez que se
+   abre el modal de OT. Primero muestra "Cargando hojas…" si corresponde (no "No hay
+   hojas", que es un estado distinto) y recién después de tener datos reales decide. */
 async function _prepararSelectorHojaOT() {
   const imprimirChk = document.getElementById('ot-hoja-imprimir');
   if (imprimirChk) imprimirChk.checked = true; // se decide cada vez, no se guarda en la OT
   const buscarEl = document.getElementById('ot-hoja-buscar');
   if (buscarEl) buscarEl.value = '';
-  await renderHojas();
-  renderOTHojaOpciones();
+  if (_actualizarVisibilidadHojaWrap()) renderOTHojaOpciones();
+  _mostrarSugerenciaHojaOT();
+  await _asegurarHojasCache();
+  if (_actualizarVisibilidadHojaWrap()) renderOTHojaOpciones();
   _mostrarSugerenciaHojaOT();
 }
 
@@ -256,39 +344,30 @@ window.openOT = function (compId, runId) {
 const _loadOTFieldsOriginal = window.loadOTFields;
 window.loadOTFields = function (ot) {
   _loadOTFieldsOriginal(ot);
-  const siEl = document.getElementById('ot-hoja-si');
-  const noEl = document.getElementById('ot-hoja-no');
-  if (siEl) siEl.checked = ot.hojaProc === 'si';
-  if (noEl) noEl.checked = ot.hojaProc === 'no';
   _otHojaCodigoActual = ot.hojaCodigo || '';
   _otHojaSeleccionPendiente = ot.hojaId || '';
-  onCambioHojaProcOT();
-  renderOTHojaOpciones();
+  _otTieneHojaIdActual = !!ot.hojaId;
+  if (_actualizarVisibilidadHojaWrap()) renderOTHojaOpciones();
   _mostrarSugerenciaHojaOT();
 };
 
 const _clearOTFieldsOriginal = window.clearOTFields;
 window.clearOTFields = function () {
   _clearOTFieldsOriginal();
-  const siEl = document.getElementById('ot-hoja-si');
-  const noEl = document.getElementById('ot-hoja-no');
-  if (siEl) siEl.checked = false;
-  if (noEl) noEl.checked = false;
   _otHojaCodigoActual = '';
   _otHojaSeleccionPendiente = '';
-  onCambioHojaProcOT();
-  renderOTHojaOpciones();
+  _otTieneHojaIdActual = false;
+  if (_actualizarVisibilidadHojaWrap()) renderOTHojaOpciones();
   _mostrarSugerenciaHojaOT();
 };
 
 const _readOTFieldsOriginal = window.readOTFields;
 window.readOTFields = function () {
   const fields = _readOTFieldsOriginal();
-  const si = document.getElementById('ot-hoja-si')?.checked;
-  const no = document.getElementById('ot-hoja-no')?.checked;
-  fields.hojaProc = si ? 'si' : (no ? 'no' : '');
+  const contenidoEl = document.getElementById('ot-hoja-contenido');
+  const bloqueVisible = !!(contenidoEl && contenidoEl.style.display === 'block');
   const selEl = document.getElementById('ot-hoja-sel');
-  if (fields.hojaProc === 'si' && selEl && selEl.value) {
+  if (bloqueVisible && selEl && selEl.value) {
     fields.hojaId = selEl.value;
     const hoja = _hojasCache.find(h => h.id === selEl.value);
     fields.hojaCodigo = hoja ? (hoja.codigo || '') : _otHojaCodigoActual;
