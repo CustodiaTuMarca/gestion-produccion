@@ -129,3 +129,238 @@ document.addEventListener('visibilitychange', () => {
   const pane = document.getElementById('pane-hojas');
   if (pane && pane.classList.contains('active')) renderHojas();
 });
+
+/* ─────────────────────── Vínculo OT ↔ Hoja de proceso ───────────────────────
+   Todo esto "engancha" el modal de OT desde afuera (monkey-patch de las funciones
+   globales openOT/saveOT/loadOTFields/clearOTFields/readOTFields que ya existen en
+   gestion_produccion.js) para no tener que tocar ese archivo salvo lo mínimo
+   (un solo hook en printOT, ver gestion_produccion.js). hProc ("H. PROC." / SI-NO)
+   es un campo viejo de la OT sin relación con esto — no se toca. */
+
+let _otHojaCodigoActual = '';     // código de la hoja vinculada, aunque la hoja ya no exista
+let _otHojaSeleccionPendiente = ''; // hojaId a preseleccionar la próxima vez que se pinten las opciones
+
+function onCambioHojaProcOT() {
+  const si = document.getElementById('ot-hoja-si')?.checked;
+  const wrap = document.getElementById('ot-hoja-selector-wrap');
+  if (wrap) wrap.style.display = si ? 'block' : 'none';
+  if (si) {
+    const sug = document.getElementById('ot-hoja-sugerencia');
+    if (sug) sug.style.display = 'none';
+  } else {
+    _mostrarSugerenciaHojaOT();
+  }
+}
+
+/* Pinta el <select> de hojas según el texto de búsqueda, preservando la selección
+   actual (o la pendiente de aplicar) aunque no coincida con el filtro escrito */
+function renderOTHojaOpciones() {
+  const selEl = document.getElementById('ot-hoja-sel');
+  const sinHojasEl = document.getElementById('ot-hoja-sin-hojas');
+  const noExisteEl = document.getElementById('ot-hoja-noexiste');
+  if (!selEl) return;
+  const filtro = (document.getElementById('ot-hoja-buscar')?.value || '').trim().toLowerCase();
+  const actual = _otHojaSeleccionPendiente || selEl.value || '';
+
+  if (!_hojasCache.length) {
+    selEl.innerHTML = '<option value="">—</option>';
+    selEl.style.display = 'none';
+    if (sinHojasEl) sinHojasEl.style.display = 'block';
+    if (noExisteEl) noExisteEl.style.display = actual ? 'block' : 'none';
+    _actualizarAccionesHojaOT();
+    _otHojaSeleccionPendiente = '';
+    return;
+  }
+  selEl.style.display = 'block';
+  if (sinHojasEl) sinHojasEl.style.display = 'none';
+
+  let lista = _hojasCache.filter(h => `${h.codigo || ''} ${h.nombre || ''}`.toLowerCase().includes(filtro));
+  const existeActual = _hojasCache.some(h => h.id === actual);
+  if (actual && existeActual && !lista.some(h => h.id === actual)) {
+    lista = [_hojasCache.find(h => h.id === actual), ...lista];
+  }
+
+  const opciones = ['<option value="">— Elegir hoja —</option>'].concat(
+    lista.map(h => `<option value="${h.id}" ${h.id === actual ? 'selected' : ''}>${_escHoja(h.codigo || '?')} — ${_escHoja(h.nombre || 'sin nombre')}</option>`)
+  );
+  selEl.innerHTML = opciones.join('');
+  if (noExisteEl) noExisteEl.style.display = (actual && !existeActual) ? 'block' : 'none';
+  _actualizarAccionesHojaOT();
+  _otHojaSeleccionPendiente = '';
+}
+
+function _actualizarAccionesHojaOT() {
+  const selEl = document.getElementById('ot-hoja-sel');
+  const acciones = document.getElementById('ot-hoja-acciones');
+  if (!acciones) return;
+  acciones.style.display = (selEl && selEl.value) ? 'flex' : 'none';
+}
+
+function onSeleccionarHojaOT() {
+  _actualizarAccionesHojaOT();
+  const sug = document.getElementById('ot-hoja-sugerencia');
+  if (sug) sug.style.display = 'none';
+}
+
+function verHojaOT() {
+  const selEl = document.getElementById('ot-hoja-sel');
+  const id = selEl && selEl.value;
+  if (!id) return;
+  window.open('hoja_de_procesos.html?id=' + encodeURIComponent(id), '_blank');
+}
+
+/* Si el código/pieza de la OT coincide exacto con el código de UNA sola hoja y todavía
+   no hay ninguna elegida, lo sugiere — pero no la selecciona sola */
+function _mostrarSugerenciaHojaOT() {
+  const el = document.getElementById('ot-hoja-sugerencia');
+  if (!el) return;
+  const selEl = document.getElementById('ot-hoja-sel');
+  if (selEl && selEl.value) { el.style.display = 'none'; return; }
+  const pieza = (document.getElementById('ot-pieza')?.value || '').trim().toLowerCase();
+  if (!pieza) { el.style.display = 'none'; return; }
+  const coincidencias = _hojasCache.filter(h => (h.codigo || '').trim().toLowerCase() === pieza);
+  if (coincidencias.length !== 1) { el.style.display = 'none'; return; }
+  const h = coincidencias[0];
+  el.innerHTML = `Sugerida: <b>${_escHoja(h.codigo)} — ${_escHoja(h.nombre || 'sin nombre')}</b> · <a href="#" onclick="usarHojaSugeridaOT('${h.id}');return false">¿usar?</a>`;
+  el.style.display = 'block';
+}
+
+function usarHojaSugeridaOT(hojaId) {
+  const siEl = document.getElementById('ot-hoja-si');
+  if (siEl) siEl.checked = true;
+  onCambioHojaProcOT();
+  _otHojaSeleccionPendiente = hojaId;
+  renderOTHojaOpciones();
+  onSeleccionarHojaOT();
+}
+
+/* Refresca la caché de hojas y repinta el selector — se llama cada vez que se abre el modal de OT */
+async function _prepararSelectorHojaOT() {
+  const imprimirChk = document.getElementById('ot-hoja-imprimir');
+  if (imprimirChk) imprimirChk.checked = true; // se decide cada vez, no se guarda en la OT
+  const buscarEl = document.getElementById('ot-hoja-buscar');
+  if (buscarEl) buscarEl.value = '';
+  await renderHojas();
+  renderOTHojaOpciones();
+  _mostrarSugerenciaHojaOT();
+}
+
+/* ── Monkey-patch de las funciones del modal de OT (definidas en gestion_produccion.js) ── */
+
+const _openOTOriginal = window.openOT;
+window.openOT = function (compId, runId) {
+  _openOTOriginal(compId, runId);
+  _prepararSelectorHojaOT();
+};
+
+const _loadOTFieldsOriginal = window.loadOTFields;
+window.loadOTFields = function (ot) {
+  _loadOTFieldsOriginal(ot);
+  const siEl = document.getElementById('ot-hoja-si');
+  const noEl = document.getElementById('ot-hoja-no');
+  if (siEl) siEl.checked = ot.hojaProc === 'si';
+  if (noEl) noEl.checked = ot.hojaProc === 'no';
+  _otHojaCodigoActual = ot.hojaCodigo || '';
+  _otHojaSeleccionPendiente = ot.hojaId || '';
+  onCambioHojaProcOT();
+  renderOTHojaOpciones();
+  _mostrarSugerenciaHojaOT();
+};
+
+const _clearOTFieldsOriginal = window.clearOTFields;
+window.clearOTFields = function () {
+  _clearOTFieldsOriginal();
+  const siEl = document.getElementById('ot-hoja-si');
+  const noEl = document.getElementById('ot-hoja-no');
+  if (siEl) siEl.checked = false;
+  if (noEl) noEl.checked = false;
+  _otHojaCodigoActual = '';
+  _otHojaSeleccionPendiente = '';
+  onCambioHojaProcOT();
+  renderOTHojaOpciones();
+  _mostrarSugerenciaHojaOT();
+};
+
+const _readOTFieldsOriginal = window.readOTFields;
+window.readOTFields = function () {
+  const fields = _readOTFieldsOriginal();
+  const si = document.getElementById('ot-hoja-si')?.checked;
+  const no = document.getElementById('ot-hoja-no')?.checked;
+  fields.hojaProc = si ? 'si' : (no ? 'no' : '');
+  const selEl = document.getElementById('ot-hoja-sel');
+  if (fields.hojaProc === 'si' && selEl && selEl.value) {
+    fields.hojaId = selEl.value;
+    const hoja = _hojasCache.find(h => h.id === selEl.value);
+    fields.hojaCodigo = hoja ? (hoja.codigo || '') : _otHojaCodigoActual;
+  } else {
+    fields.hojaId = '';
+    fields.hojaCodigo = '';
+  }
+  return fields;
+};
+
+/* Suma/resta el N° de OT en otNums de la hoja correspondiente. No usa set/merge del
+   documento completo ni toca "actualizada" (solo ese campo), y nunca bloquea ni hace
+   fallar el guardado de la OT: los errores quedan en un aviso discreto (showToast). */
+async function _sincronizarVinculoHoja(hojaIdAnterior, hojaIdNuevo, otNum) {
+  if (!_userId || hojaIdAnterior === hojaIdNuevo) return;
+  const hojasRef = db.collection('usuarios').doc(_userId).collection('hojas');
+  let huboError = false;
+  if (hojaIdAnterior) {
+    try { await hojasRef.doc(hojaIdAnterior).update({ otNums: firebase.firestore.FieldValue.arrayRemove(otNum) }); }
+    catch (err) { console.error('No se pudo desvincular la OT de la hoja anterior:', err); huboError = true; }
+  }
+  if (hojaIdNuevo) {
+    try { await hojasRef.doc(hojaIdNuevo).update({ otNums: firebase.firestore.FieldValue.arrayUnion(otNum) }); }
+    catch (err) { console.error('No se pudo vincular la OT a la hoja:', err); huboError = true; }
+  }
+  if (huboError && typeof showToast === 'function') {
+    showToast('La OT se guardó, pero no se pudo actualizar el vínculo con la hoja de proceso.');
+  }
+}
+
+const _saveOTOriginal = window.saveOT;
+window.saveOT = function () {
+  let hojaIdAnterior = null;
+  if (_otEditNum) {
+    const found = _findOTByKey(_otEditNum);
+    if (found) hojaIdAnterior = found.ot.hojaId || null;
+  }
+  const resultado = _saveOTOriginal();
+  if (resultado !== false) {
+    // _otEditNum ya quedó seteado (nueva OT recién creada o la existente) por el saveOT original
+    const found = _otEditNum ? _findOTByKey(_otEditNum) : null;
+    if (found) {
+      const hojaIdNuevo = found.ot.hojaId || null;
+      _sincronizarVinculoHoja(hojaIdAnterior, hojaIdNuevo, found.ot.otNum);
+    }
+  }
+  return resultado;
+};
+
+/* Tras imprimir la OT (hook llamado al final de printOT() en gestion_produccion.js, solo
+   si la OT se imprimió de verdad): si la casilla está tildada y hay hoja elegida, abre
+   también la hoja de proceso para imprimir. Si no hay checkbox/hoja (OT vieja o sin hoja),
+   no hace nada y la OT se imprime exactamente igual que antes. */
+function _despuesDeImprimirOT() {
+  const chk = document.getElementById('ot-hoja-imprimir');
+  const selEl = document.getElementById('ot-hoja-sel');
+  const hojaId = selEl && selEl.value;
+  if (!chk || !chk.checked || !hojaId) return;
+  const popup = window.open('hoja_de_procesos.html?id=' + encodeURIComponent(hojaId) + '&imprimir=1', '_blank');
+  if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+    _avisoPopupHojaBloqueado(hojaId);
+  }
+}
+
+function _avisoPopupHojaBloqueado(hojaId) {
+  const div = document.createElement('div');
+  div.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);'
+    + 'background:var(--negro);color:var(--amarillo);font-size:12px;font-weight:600;'
+    + 'padding:10px 16px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.3);'
+    + 'z-index:99999;display:flex;gap:10px;align-items:center;flex-wrap:wrap';
+  div.innerHTML = `<span>El navegador bloqueó la ventana de la hoja de proceso.</span>
+    <a href="hoja_de_procesos.html?id=${encodeURIComponent(hojaId)}&imprimir=1" target="_blank" rel="noopener" style="color:var(--amarillo);text-decoration:underline">Abrirla a mano</a>
+    <button type="button" style="background:none;border:none;color:var(--amarillo);cursor:pointer;font-size:14px;line-height:1" onclick="this.parentElement.remove()">✕</button>`;
+  document.body.appendChild(div);
+}

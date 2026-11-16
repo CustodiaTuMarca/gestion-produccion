@@ -5795,6 +5795,7 @@ function printOT(){
   document.getElementById('modal-ot').style.display='none';
   _otCompId=null;_otRunId=null;
   renderStock();
+  if(typeof _despuesDeImprimirOT==='function')_despuesDeImprimirOT();
 }
 
 

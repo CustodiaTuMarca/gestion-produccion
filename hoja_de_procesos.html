@@ -129,6 +129,9 @@
     Con <b>Abrir hoja (JSON)</b> retomás ese archivo. Si cerrás la página con cambios sin guardar, te avisa.
     Si el botón de imprimir no responde, abrí este archivo en Chrome o Edge y usá Ctrl+P.
   </div>
+  <div id="ot-asociadas-wrap" class="nota no-print" style="background:#eef5fc;border-color:#2980b9">
+    <b>Órdenes de trabajo asociadas:</b> <span id="ot-asociadas-lista">Ninguna todavía.</span>
+  </div>
 
   <h1>Hoja de procesos</h1>
   <div class="resumen" id="resumen"></div>
@@ -1055,10 +1058,38 @@ async function cargarDeNube(id) {
     adjSnap.forEach(docu => { _adjuntosNube[docu.id] = true; });
     const url = new URL(location.href); url.searchParams.set('id', id); history.replaceState(null, '', url);
     sucio = false;
+    _mostrarOtAsociadas(_otNums);
+    if (new URLSearchParams(location.search).get('imprimir') === '1') {
+      _esperarImagenesHoja().then(() => setTimeout(imprimir, 200));
+    }
   } catch (err) {
     console.error('Error cargando hoja desde la nube:', err);
     alert('No se pudo cargar la hoja desde la nube: ' + (err.message || err));
   }
+}
+
+/* Solo informativo — otNums lo arma gestion_produccion.js/hojas_proceso.js al guardar la OT */
+function _mostrarOtAsociadas(otNums) {
+  const el = document.getElementById('ot-asociadas-lista');
+  if (!el) return;
+  const lista = [...(otNums || [])].sort((a, b) => a - b);
+  el.textContent = lista.length ? lista.map(n => 'OT N°' + n).join(', ') : 'Ninguna todavía.';
+}
+
+/* Espera a que terminen de cargar las imágenes (planos y fotos anotadas) antes de imprimir
+   automáticamente con ?imprimir=1, para que no salga una hoja en blanco */
+function _esperarImagenesHoja() {
+  const imgs = [...document.querySelectorAll('#bloques .adjunto.plano img')];
+  const canvases = [...document.querySelectorAll('#bloques .adjunto.imagen canvas')];
+  const esperarImg = img => img.complete ? Promise.resolve() : new Promise(res => {
+    img.addEventListener('load', res, { once: true });
+    img.addEventListener('error', res, { once: true });
+  });
+  const esperarCanvas = cv => (!cv._img || cv._img.complete) ? Promise.resolve() : new Promise(res => {
+    cv._img.addEventListener('load', res, { once: true });
+    cv._img.addEventListener('error', res, { once: true });
+  });
+  return Promise.all([...imgs.map(esperarImg), ...canvases.map(esperarCanvas)]);
 }
 
 auth.onAuthStateChanged(user => {

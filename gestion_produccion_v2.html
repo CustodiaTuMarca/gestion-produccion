@@ -990,6 +990,36 @@
         <div style="font-size:10px;font-weight:700;color:#2980b9;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">📝 MATERIA PRIMA</div>
         <div id="ot-descmp-text" style="font-size:13px;font-weight:600;color:#1a1a1a"></div>
       </div>
+
+      <!-- Vínculo con Hoja de proceso (no imprime: queda fuera de #ot-print-area) -->
+      <div id="ot-hoja-wrap" style="background:#fafaf5;border:1.5px solid #e3dfb8;border-radius:8px;padding:8px 12px;margin-bottom:10px">
+        <div style="font-size:10px;font-weight:700;color:#8a7a00;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">🗒 Hoja de proceso</div>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+          <span style="font-size:11px;color:#888">¿Tiene hoja de proceso?</span>
+          <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer">
+            <input type="radio" name="ot-hoja-tiene" id="ot-hoja-si" onchange="onCambioHojaProcOT()"> Sí
+          </label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer">
+            <input type="radio" name="ot-hoja-tiene" id="ot-hoja-no" onchange="onCambioHojaProcOT()"> No
+          </label>
+        </div>
+        <div id="ot-hoja-sugerencia" style="display:none;font-size:11px;color:#2980b9;margin-bottom:6px"></div>
+        <div id="ot-hoja-selector-wrap" style="display:none">
+          <input type="text" id="ot-hoja-buscar" placeholder="Buscar hoja por código o nombre..." style="width:100%;font-size:12px;margin-bottom:5px" oninput="renderOTHojaOpciones()">
+          <select id="ot-hoja-sel" style="width:100%;font-size:12px;margin-bottom:5px" onchange="onSeleccionarHojaOT()"></select>
+          <div id="ot-hoja-sin-hojas" style="display:none;font-size:11px;color:#888;margin-bottom:5px">
+            No hay hojas cargadas todavía. <a href="hoja_de_procesos.html" target="_blank" rel="noopener">Crear una hoja</a>.
+          </div>
+          <div id="ot-hoja-noexiste" style="display:none;font-size:11px;color:#b45309;margin-bottom:5px">⚠ La hoja asociada ya no existe.</div>
+          <div id="ot-hoja-acciones" style="display:none;align-items:center;gap:14px;flex-wrap:wrap">
+            <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer">
+              <input type="checkbox" id="ot-hoja-imprimir" checked> Imprimir también la hoja de proceso
+            </label>
+            <button type="button" onclick="verHojaOT()" style="font-size:11px;padding:3px 10px;border:1px solid var(--negro);border-radius:5px;cursor:pointer;background:none;color:var(--negro)">Ver hoja</button>
+          </div>
+        </div>
+      </div>
+
       <div id="ot-print-area">
         <!-- HEADER -->
         <div class="ot-header">
