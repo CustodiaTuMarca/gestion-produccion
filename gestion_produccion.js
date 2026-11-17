@@ -573,6 +573,12 @@ function addWorkingMins(startDateStr, startMinInDay, totalMins){
   return{date:dateStr(d),minInDay};
 }
 
+// Escapa &, ", < y > para poder insertar texto libre dentro de atributos
+// HTML o de un documento armado con document.write() sin romper el markup.
+function _escHtml(s){
+  return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
 function fmtDur(mins){
   if(!mins)return '0min';
   const d=Math.floor(mins/MINS_PER_DAY);
@@ -1092,6 +1098,13 @@ function _renderSubCards(subsArr, el, baseColorIdx, isOC, oc){
             onchange="components.find(x=>x.id==${c.id}).descripcionMP=this.value;scheduleSync()">
         </div>`:'';
 
+      const esCorte=c.machine==='Corte';
+      const descCorteField=esCorte?`
+        <div class="field"><label>✂️ Detalle de corte</label>
+          <input type="text" value="${_escHtml(c.descCorte||'')}" placeholder="Ej: cortar a 30cm, 4 piezas"
+            onchange="components.find(x=>x.id==${c.id}).descCorte=this.value;scheduleSync()">
+        </div>`:'';
+
       const fab=totalStockComp(c.id);
       return `<div class="comp-card">
         <div class="comp-header">
@@ -1121,6 +1134,7 @@ function _renderSubCards(subsArr, el, baseColorIdx, isOC, oc){
           </div>
           ${tiempoField}
           ${descMPField}
+          ${descCorteField}
           <div class="field"><label style="display:flex;align-items:center;gap:4px">En stock <span style="font-size:9px;background:#e8f4e8;color:#1a7a4a;padding:1px 5px;border-radius:6px">Avance/Stock</span></label>
             <input type="text" value="${fab}" readonly style="background:#f5f5f3;color:${fab>0?'#1a7a4a':'#aaa'};font-weight:700;cursor:default">
           </div>
@@ -2014,6 +2028,18 @@ function _mpDescTxtForOT(proj,compIds,subIds){
   const list=[];
   compIds.forEach(cid=>_descMPListDeDeps(proj,cid).forEach(t=>{ if(!list.includes(t))list.push(t); }));
   subIds.forEach(sid=>_descMPListDeItem(proj,sid).forEach(t=>{ if(!list.includes(t))list.push(t); }));
+  return list.join(' / ');
+}
+// Texto único de "DETALLE DE CORTE" para la OT: toma comp.descCorte de los
+// componentes con proceso Corte entre los compIds vinculados a la OT (acotado
+// siempre al proyecto "proj" recibido, ya que los id de componente se repiten
+// entre proyectos).
+function _corteDescTxtForOT(proj,compIds){
+  const list=[];
+  compIds.forEach(cid=>{
+    const c=(proj.components||[]).find(x=>x.id===cid);
+    if(c&&c.machine==='Corte'&&c.descCorte&&!list.includes(c.descCorte))list.push(c.descCorte);
+  });
   return list.join(' / ');
 }
 
@@ -5254,12 +5280,17 @@ function openOT(compId,runId){
   const loteText=document.getElementById('ot-lote-text');
   const descWrap=document.getElementById('ot-descmp-wrap');
   const descText=document.getElementById('ot-descmp-text');
+  const corteWrap=document.getElementById('ot-descCorte-wrap');
+  const corteText=document.getElementById('ot-descCorte-text');
   const lotesActivos=_lotesActivosDeSub(currentProject().id,comp.subId);
   const descMPTxt=_mpDescTxtForOT(currentProject(),[compId],new Set([comp.subId]));
+  const descCorteTxt=_corteDescTxtForOT(currentProject(),[compId]);
   loteWrap.style.display=lotesActivos.length?'block':'none';
   if(lotesActivos.length) loteText.textContent=lotesActivos.map(l=>l.lote).join(', ');
   descWrap.style.display=descMPTxt?'block':'none';
   if(descMPTxt) descText.textContent=descMPTxt;
+  corteWrap.style.display=descCorteTxt?'block':'none';
+  if(descCorteTxt) corteText.textContent=descCorteTxt;
 
   // comprobar si ya existe OT para este run
   const existing=findOTForRun(compId,runId);
@@ -5556,6 +5587,10 @@ function printOT(){
   // componente), combinando componentes del mismo ítem y dependencias.
   const mpDescTxt=_mpDescTxtForOT(currentProject(),_linkedCompIds,_linkedSubIds);
 
+  // Detalle de corte: solo descCorte de los componentes con proceso Corte
+  // vinculados a esta OT.
+  const descCorteTxt=_corteDescTxtForOT(currentProject(),_linkedCompIds);
+
   function cb(checked){
     return `<span style="display:inline-block;width:14px;height:14px;border:2px solid #333;
       background:${checked?'#111':'#fff'};border-radius:2px;flex-shrink:0;vertical-align:middle;
@@ -5726,6 +5761,15 @@ function printOT(){
         <div class="cell" style="border-right:none">
           <div class="cell-lbl">MATERIA PRIMA</div>
           <div class="cell-val" style="font-size:7.5pt;font-weight:600;line-height:1.15;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;align-items:flex-start;overflow:hidden;max-height:2.3em">${safe(mpDescTxt,300)}</div>
+        </div>
+      </div>`:''}
+
+      ${descCorteTxt?`
+      <!-- Fila DETALLE DE CORTE: solo descCorte, acotada para no romper el diseño con texto largo -->
+      <div class="frow" style="grid-template-columns:1fr">
+        <div class="cell" style="border-right:none">
+          <div class="cell-lbl">DETALLE DE CORTE</div>
+          <div class="cell-val" style="font-size:7.5pt;font-weight:600;line-height:1.15;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;align-items:flex-start;overflow:hidden;max-height:2.3em">${_escHtml(safe(descCorteTxt,300))}</div>
         </div>
       </div>`:''}
 
